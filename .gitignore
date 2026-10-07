@@ -1,0 +1,12 @@
+node_modules/
+frontend/dist/
+backend/.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Downloaded datasets, trained runs/checkpoints, studies (custom_blocks/ is kept)
+backend/data/datasets/
+backend/data/runs/
+backend/data/studies/
+backend/data/history.json
