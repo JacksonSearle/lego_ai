@@ -28,6 +28,8 @@ import traceback
 import types
 from pathlib import Path
 
+import torch.nn as nn
+
 from .registry import REGISTRY, BlockSpec, Param, register
 
 CUSTOM_DIR = Path(__file__).resolve().parent.parent / "data" / "custom_blocks"
@@ -44,6 +46,7 @@ def lego_block(
     paper: str | None = None,
     type: str | None = None,
     tags: list[str] | None = None,
+    parts: list[dict] | None = None,
 ):
     """Mark a class or builder function as a Lego block."""
 
@@ -52,7 +55,7 @@ def lego_block(
             obj,
             _MARK,
             dict(name=name, color=color, description=description or (inspect.getdoc(obj) or "").strip(),
-                 params=params or [], expects=expects, paper=paper, type=type, tags=tags or ["general"]),
+                 params=params or [], expects=expects, paper=paper, type=type, tags=tags or ["general"], parts=parts),
         )
         return obj
 
@@ -68,12 +71,18 @@ def _make_builder(obj):
     sig = inspect.signature(obj)
     wants_ctx = "ctx" in sig.parameters
 
+    def remember(module, in_shape, params):
+        # Lets the exporter write this block as ``ClassName(in_shape, **params)``.
+        if isinstance(module, nn.Module) and inspect.isclass(obj) and "_lego_custom" not in module.__dict__:
+            object.__setattr__(module, "_lego_custom", {"name": obj.__name__, "in_shape": tuple(in_shape), "params": params, "ctx": wants_ctx})
+        return module
+
     if wants_ctx:
         def build(in_shape, ctx, **params):
-            return obj(in_shape, ctx=ctx, **params)
+            return remember(obj(in_shape, ctx=ctx, **params), in_shape, params)
     else:
         def build(in_shape, **params):
-            return obj(in_shape, **params)
+            return remember(obj(in_shape, **params), in_shape, params)
     return build
 
 
@@ -105,6 +114,7 @@ def exec_source(source: str, filename: str) -> list[BlockSpec]:
                 source="custom",
                 source_file=filename,
                 tags=meta.get("tags") or ["general"],
+                parts=meta.get("parts"),
             )
         )
     if not specs:
@@ -279,6 +289,59 @@ class SqueezeExcite(nn.Module):
         w = self.fc(x.mean(dim=(2, 3)))
         return x * w[:, :, None, None]
 '''
+
+
+FUSED_TEMPLATE = '''"""{name}: a fused block.
+
+Made in the Builder by fusing {n} blocks into one. It builds exactly those blocks in order.
+You can edit PARTS (same format as a model's block list), the name or the color, then Save.
+"""
+from lego.sdk import compose, lego_block
+
+PARTS = {parts}
+
+
+@lego_block(
+    name={name!r},
+    color={color!r},
+    description={description!r},
+    tags={tags!r},
+    parts=PARTS,
+)
+def {func}(in_shape, ctx=None):
+    return compose(in_shape, ctx, PARTS)
+'''
+
+
+def fuse(name: str, color: str, parts: list[dict]) -> BlockSpec:
+    """Create (and save) a custom block that is the given blocks fused into one."""
+    import json
+
+    name = (name or "").strip()[:40] or "Fused block"
+    if len(parts) < 1:
+        raise ValueError("Select at least one block to fuse.")
+    clean = []
+    tags: set[str] = set()
+    for b in parts:
+        spec = REGISTRY.get(b.get("type"))
+        if spec is None:
+            raise ValueError(f"Unknown block type {b.get('type')!r}.")
+        clean.append({"type": b["type"], "params": spec.resolve_params(b.get("params")), "repeat": max(1, int(b.get("repeat") or 1))})
+        tags.update(spec.tags)
+    slug = _slug(name) or "fused"
+    func = "fused_" + slug
+    filename = f"{func}.py"
+    n = 2
+    while (CUSTOM_DIR / filename).exists() or f"custom:{func}" in REGISTRY:
+        func, filename = f"fused_{slug}_{n}", f"fused_{slug}_{n}.py"
+        n += 1
+    inner = " → ".join((REGISTRY[b["type"]].name + (f" ×{b['repeat']}" if b["repeat"] > 1 else "")) for b in clean)
+    source = FUSED_TEMPLATE.format(
+        name=name, n=sum(b["repeat"] for b in clean), color=color or "#38bdf8", func=func,
+        parts=json.dumps(clean, indent=4).replace("true", "True").replace("false", "False").replace("null", "None"),
+        description=f"Fused block: {inner}.", tags=sorted(tags - {"general"}) or ["general"],
+    )
+    return save(filename, source)[0]
 
 
 def ensure_example():

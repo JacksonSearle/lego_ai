@@ -28,6 +28,8 @@ export interface BlockSpec {
   source_file: string | null
   tags: string[]
   year: number | null
+  /** Fused blocks: the blocks this one was made from. */
+  parts?: Omit<BlockInst, 'id'>[] | null
 }
 
 export interface BlockInst {
@@ -103,6 +105,9 @@ export interface Template {
   blocks: BlockInst[]
   training: Training
   recommended: boolean
+  /** Recreations of published architectures. */
+  famous?: { year: number; authors: string; paper: string }
+  params?: number
 }
 
 export interface BlockReport {
@@ -122,6 +127,9 @@ export interface InspectResult {
   expected_output: number[]
   total_params: number
   error: string | null
+  /** Per training example: bytes of activations, and multiply-adds for one forward pass. */
+  act_bytes_per_sample?: number
+  flops_per_sample?: number
 }
 
 export interface RunConfig {
@@ -132,6 +140,8 @@ export interface RunConfig {
   architecture: { blocks: BlockInst[] }
   training: Training
   custom_blocks?: Record<string, { source: string; sha256: string }>
+  /** Weight-initialization scheme (absent = 1, the original). */
+  init_stream?: number
   environment?: Record<string, unknown>
 }
 
@@ -204,6 +214,23 @@ export interface Hardware {
   gpus: { device: string; name: string; memory_gb: number; free_gb: number; shared: boolean }[]
   best_device: string
   notes: string[]
+}
+
+/** How a model fits on one device: memory at the chosen batch size, and rough time per epoch. */
+export interface DeviceFit { fits: boolean; need_gb: number; max_batch: number; epoch_seconds: number | null }
+
+/** Memory and time needed to train a model here and on well-known GPUs. */
+export interface Estimate {
+  verdict: 'ok' | 'long' | 'slow' | 'too_big'
+  headline: string
+  need_gb: number
+  fixed_gb: number
+  per_sample_mb: number
+  batch_size: number
+  epochs: number
+  here: (DeviceFit & { device: string; label: string; capacity_gb: number; selected: boolean })[]
+  gpus: (DeviceFit & { name: string; memory_gb: number; note: string; count: number | null })[]
+  faster_here: string | null
 }
 
 export interface ProfileInfo { id: string; name: string; active: boolean; mode: string | null; xp: number; avatar: string; demo: boolean }

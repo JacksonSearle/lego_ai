@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..registry import CURVE_XS, BuildContext, Param, block, make_activation
+from ..registry import CURVE_XS, BuildContext, LegoModule, Param, block, make_activation
 
 
 class ShapeError(ValueError):
@@ -43,7 +43,7 @@ def _fmt(shape):
 # ---------------------------------------------------------------------------
 # Dense
 # ---------------------------------------------------------------------------
-class LinearAct(nn.Module):
+class LinearAct(LegoModule):
     def __init__(self, d_in, d_out, bias, activation):
         super().__init__()
         self.linear = nn.Linear(d_in, d_out, bias=bias)
@@ -73,7 +73,7 @@ def build_linear(in_shape, out_features, activation, bias):
     return LinearAct(in_shape[-1], out_features, bias, activation)
 
 
-class MLPBlock(nn.Module):
+class MLPBlock(LegoModule):
     def __init__(self, d_in, hidden, d_out, activation, dropout, residual):
         super().__init__()
         self.net = nn.Sequential(
@@ -173,7 +173,7 @@ def build_depthwise(in_shape, out_channels, kernel_size, stride, activation):
     )
 
 
-class ResidualConv(nn.Module):
+class ResidualConv(LegoModule):
     def __init__(self, c_in, c_out, stride, activation):
         super().__init__()
         self.conv1 = nn.Conv2d(c_in, c_out, 3, stride, 1, bias=False)
@@ -208,6 +208,48 @@ class ResidualConv(nn.Module):
 def build_resblock(in_shape, out_channels, stride, activation):
     _need_image(in_shape, "Residual Conv Block")
     return ResidualConv(in_shape[0], out_channels or in_shape[0], stride, activation)
+
+
+class Bottleneck(LegoModule):
+    def __init__(self, c_in, width, stride, expansion, activation):
+        super().__init__()
+        c_out = width * expansion
+        self.conv1 = nn.Conv2d(c_in, width, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(width)
+        self.conv2 = nn.Conv2d(width, width, 3, stride, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(width)
+        self.conv3 = nn.Conv2d(width, c_out, 1, bias=False)
+        self.bn3 = nn.BatchNorm2d(c_out)
+        self.act = make_activation(activation)
+        self.shortcut = nn.Identity()
+        if stride != 1 or c_in != c_out:
+            self.shortcut = nn.Sequential(nn.Conv2d(c_in, c_out, 1, stride, bias=False), nn.BatchNorm2d(c_out))
+
+    def forward(self, x):
+        y = self.act(self.bn1(self.conv1(x)))
+        y = self.act(self.bn2(self.conv2(y)))
+        y = self.bn3(self.conv3(y))
+        return self.act(y + self.shortcut(x))
+
+
+@block(
+    "bottleneck",
+    "Bottleneck Residual Block",
+    category="Convolution",
+    color="#9a3412",
+    description="The block of ResNet-50 and deeper: squeeze channels with a 1×1 conv, do the 3×3 conv on the narrow version, expand back with another 1×1 conv, then add the input. Much cheaper per layer than two full 3×3 convs.",
+    expects="image",
+    params=[
+        Param("width", "int", 64, "Inner width", "Channels inside the bottleneck (the 3×3 conv works at this width).", min=1),
+        Param("expansion", "int", 4, "Expansion", "Output channels = inner width × this. ResNet uses 4.", min=1, max=8),
+        Param("stride", "int", 1, "Stride", "2 halves the resolution (the skip path is projected to match).", min=1, max=4),
+        Param("activation", "activation", "relu", "Activation", "Non-linearity used inside the block."),
+    ],
+    paper="https://arxiv.org/abs/1512.03385",
+)
+def build_bottleneck(in_shape, width, expansion, stride, activation):
+    _need_image(in_shape, "Bottleneck Residual Block")
+    return Bottleneck(in_shape[0], width, stride, expansion, activation)
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +293,7 @@ def build_avgpool(in_shape, kernel_size, stride):
     return nn.AvgPool2d(kernel_size, stride or kernel_size)
 
 
-class GlobalAvgPool(nn.Module):
+class GlobalAvgPool(LegoModule):
     def forward(self, x):
         return x.mean(dim=(2, 3))
 
@@ -270,7 +312,7 @@ def build_gap(in_shape):
     return GlobalAvgPool()
 
 
-class SeqPool(nn.Module):
+class SeqPool(LegoModule):
     def __init__(self, mode):
         super().__init__()
         self.mode = mode
@@ -302,7 +344,7 @@ def build_seq_pool(in_shape, mode):
 # ---------------------------------------------------------------------------
 # Recurrent
 # ---------------------------------------------------------------------------
-class Recurrent(nn.Module):
+class Recurrent(LegoModule):
     def __init__(self, kind, d_in, hidden, layers, bidirectional, return_sequences, dropout, nonlinearity="tanh"):
         super().__init__()
         cls = {"rnn": nn.RNN, "lstm": nn.LSTM, "gru": nn.GRU}[kind]
@@ -406,7 +448,7 @@ def build_embedding(in_shape, ctx, dim):
     return nn.Embedding(ctx.vocab_size, dim)
 
 
-class ImageRows(nn.Module):
+class ImageRows(LegoModule):
     def forward(self, x):
         b, c, h, w = x.shape
         return x.permute(0, 2, 1, 3).reshape(b, h, c * w)
@@ -425,7 +467,7 @@ def build_image_rows(in_shape):
     return ImageRows()
 
 
-class PatchEmbed(nn.Module):
+class PatchEmbed(LegoModule):
     def __init__(self, c, patch, dim):
         super().__init__()
         self.proj = nn.Conv2d(c, dim, patch, patch)
@@ -454,7 +496,7 @@ def build_patch_embed(in_shape, patch_size, dim):
     return PatchEmbed(in_shape[0], patch_size, dim)
 
 
-class PositionalEncoding(nn.Module):
+class PositionalEncoding(LegoModule):
     def __init__(self, t, d, kind, dropout):
         super().__init__()
         if kind == "learned":
@@ -498,7 +540,7 @@ def _is_causal(causal, ctx):
     return ctx.task == "lm" if causal == "auto" else causal == "yes"
 
 
-class TransformerBlock(nn.Module):
+class TransformerBlock(LegoModule):
     def __init__(self, d, heads, ff_mult, dropout, causal, activation, norm_first):
         super().__init__()
         self.norm_first = norm_first
@@ -549,7 +591,7 @@ def build_transformer(in_shape, ctx, heads, ff_mult, dropout, causal, activation
     return TransformerBlock(d, heads, ff_mult, dropout, _is_causal(causal, ctx), activation, norm_first)
 
 
-class SelfAttention(nn.Module):
+class SelfAttention(LegoModule):
     def __init__(self, d, heads, dropout, causal):
         super().__init__()
         self.ln = nn.LayerNorm(d)
@@ -586,7 +628,7 @@ def build_self_attention(in_shape, ctx, heads, dropout, causal):
     return SelfAttention(in_shape[-1], heads, dropout, _is_causal(causal, ctx))
 
 
-class MixerBlock(nn.Module):
+class MixerBlock(LegoModule):
     def __init__(self, t, d, token_hidden, channel_hidden, activation, dropout):
         super().__init__()
         self.ln1 = nn.LayerNorm(d)
@@ -624,7 +666,7 @@ def build_mixer(in_shape, ctx, token_hidden, channel_hidden, activation, dropout
 # ---------------------------------------------------------------------------
 # Normalization
 # ---------------------------------------------------------------------------
-class SeqBatchNorm(nn.Module):
+class SeqBatchNorm(LegoModule):
     def __init__(self, d):
         super().__init__()
         self.bn = nn.BatchNorm1d(d)
@@ -702,7 +744,7 @@ def build_activation(in_shape, fn):
     return make_activation(fn)
 
 
-class DrawnActivation(nn.Module):
+class DrawnActivation(LegoModule):
     """A piecewise-linear function through hand-placed points, extended in a straight line beyond them.
 
     Written as a sum of ReLUs so it is exact, differentiable almost everywhere and runs on any device:
@@ -742,7 +784,7 @@ def build_drawn_activation(in_shape, points):
 # ---------------------------------------------------------------------------
 # Head
 # ---------------------------------------------------------------------------
-class ClassifierHead(nn.Module):
+class ClassifierHead(LegoModule):
     def __init__(self, reduce, d_in, d_out, dropout):
         super().__init__()
         self.reduce = reduce
@@ -796,6 +838,7 @@ _META = {
     "dropout": (["general"], 2012), "flatten": (["general"], None), "classifier": (["general"], None),
     "batchnorm": (["general", "image"], 2015), "layernorm": (["general", "text"], 2016),
     "conv2d": (["image"], 1989), "depthwise_conv": (["image"], 2017), "resblock": (["image"], 2015),
+    "bottleneck": (["image"], 2015),
     "maxpool2d": (["image"], 1989), "avgpool2d": (["image"], 1989), "global_avgpool": (["image"], 2013),
     "patch_embed": (["image"], 2020), "image_to_sequence": (["image"], 1990), "mixer": (["image"], 2021),
     "embedding": (["text"], 2003), "seq_pool": (["text"], None), "rnn": (["text"], 1990), "lstm": (["text"], 1997),

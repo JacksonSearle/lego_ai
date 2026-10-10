@@ -4,6 +4,7 @@ import { MiniStack } from '../components/ArchView'
 import { LiveCharts } from '../components/LiveCharts'
 import { Difficulty, difficultyTag } from '../components/Difficulty'
 import { HardwarePanel, bottleneck } from '../components/HardwarePanel'
+import { SizeAdvisor, useEstimate } from '../components/SizeAdvisor'
 import { NumInput } from '../components/NumInput'
 import { ParamField } from '../components/ParamField'
 import { HP_FEATURE } from '../learn/curriculum'
@@ -32,6 +33,7 @@ export function Train() {
   })
   const [runs, setRuns] = useState<RunRow[]>([])
   const { access, flag, spot, progress } = useLearn()
+  const est = useEstimate()
   const [pane, setPane] = useState<Pane>(() => (sessionStorage.getItem('lego-ai/train-pane') as Pane) || 'hp')
   const [seeds, setSeeds] = useState(1)
   // Explanations take a lot of room: on by default while learning, off for experts. Remembered.
@@ -128,7 +130,7 @@ export function Train() {
     { id: 'model', label: 'Model & data' },
     { id: 'hp', label: 'Hyperparameters' },
     ...(canOptuna ? [{ id: 'optuna' as Pane, label: useOptuna ? 'Search ●' : 'Search' }] : []),
-    { id: 'hardware', label: 'Hardware' },
+    { id: 'hardware', label: est && est.verdict !== 'ok' ? (est.verdict === 'too_big' ? 'Hardware ⚠' : 'Hardware ⏱') : 'Hardware' },
   ]
 
   return (
@@ -217,7 +219,10 @@ export function Train() {
             <OptunaPanel enabled={useOptuna} setEnabled={setUseOptuna} opts={optuna!} setOpts={setOptuna} hps={meta!.hyperparams} reset={() => setOptuna({ n_trials: 10, epochs: 2, metric: 'val_acc', pruning: true, space: meta!.search_space })} />
           )}
 
-          {pane === 'hardware' && <HardwarePanel device={String(effectiveTraining(t).device)} lastEpoch={lastEpoch} />}
+          {pane === 'hardware' && <>
+            {est && <div style={{ marginBottom: 14 }}><h4 style={{ marginBottom: 6 }}>Can this computer train this model?</h4><SizeAdvisor est={est} /></div>}
+            <HardwarePanel device={String(effectiveTraining(t).device)} lastEpoch={lastEpoch} />
+          </>}
         </div>
 
         <div className="train-actions">

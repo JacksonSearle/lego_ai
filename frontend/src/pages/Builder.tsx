@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { api, downloadJSON } from '../api'
+import { api, downloadJSON, downloadPython } from '../api'
 import { MiniStack } from '../components/ArchView'
 import { Brick } from '../components/Brick'
 import { Difficulty, difficultyTag } from '../components/Difficulty'
 import { NumInput } from '../components/NumInput'
 import { ParamField } from '../components/ParamField'
+import { SizeAdvisor, useEstimate, verdictLabel, verdictTone } from '../components/SizeAdvisor'
 import { GuideButton } from '../learn/GuideButton'
 import { LEVELS } from '../learn/curriculum'
 import { blockAllowed, skillForBlock, skillForDataset, type Access } from '../learn/engine'
@@ -12,17 +13,21 @@ import { useLearn } from '../learn/LearnContext'
 import { lessonForBlock } from '../learn/lessons'
 import { QuickTrain } from './QuickTrain'
 import { newId, useStore } from '../store'
-import type { BlockInst, BlockSpec, Template } from '../types'
+import type { BlockInst, BlockSpec, Estimate, Template } from '../types'
 import { cloneBlock, defaultParams, describeInput, describeOutput, fmtNum, fmtShape } from '../util'
 
 type DragData = { kind: 'new'; type: string } | { kind: 'move'; id: string }
 const MIME = 'application/x-lego'
 
 export function Builder() {
-  const { blocks: specs, meta, draft, setDraft, inspect, dataset, datasets, undo, redo, canUndo, canRedo, setTab, toast, loadConfig } = useStore()
+  const { blocks: specs, meta, draft, setDraft, inspect, dataset, datasets, undo, redo, canUndo, canRedo, setTab, toast, loadConfig, toConfig, refreshBlocks } = useStore()
   const { access, flag, openLesson, setGuideView } = useLearn()
   const [taskFilter, setTaskFilter] = useState<'all' | 'image' | 'text'>('all')
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelectedId] = useState<string | null>(null)
+  // Shift-click picks a second block: everything between the two is selected (to fuse into one block).
+  const [rangeEnd, setRangeEnd] = useState<string | null>(null)
+  const setSelected = useCallback((id: string | null | ((s: string | null) => string | null)) => { setSelectedId(id); setRangeEnd(null) }, [])
+  const est = useEstimate()
   const [drag, setDrag] = useState<DragData | null>(null)
   const [insertAt, setInsertAt] = useState<number | null>(null)
   const [overTrash, setOverTrash] = useState(false)
@@ -34,6 +39,12 @@ export function Builder() {
   const blocks = draft.blocks
   const reports = useMemo(() => Object.fromEntries((inspect?.blocks ?? []).map((r) => [r.id, r])), [inspect])
   const sel = blocks.find((b) => b.id === selected) ?? null
+  const range = useMemo(() => {
+    const a = blocks.findIndex((b) => b.id === selected)
+    const z = blocks.findIndex((b) => b.id === rangeEnd)
+    return a < 0 || z < 0 || a === z ? [] : blocks.slice(Math.min(a, z), Math.max(a, z) + 1)
+  }, [blocks, selected, rangeEnd])
+  const inRange = (id: string) => range.some((b) => b.id === id)
 
   useEffect(() => {
     api.templates(draft.dataset).then(setTemplates)
@@ -50,7 +61,7 @@ export function Builder() {
       setBlocks((bs) => [...bs.slice(0, at), b, ...bs.slice(at)])
       setSelected(b.id)
     },
-    [specs, setBlocks],
+    [specs, setBlocks, setSelected],
   )
 
   /** Where a click-to-add lands: above the selected block, else just below the output head, else on top. */
@@ -66,7 +77,7 @@ export function Builder() {
       flag('removeBlock')
       setSelected((s) => (s === id ? null : s))
     },
-    [setBlocks, flag],
+    [setBlocks, flag, setSelected],
   )
 
   const duplicate = useCallback(
@@ -77,7 +88,7 @@ export function Builder() {
       setBlocks((bs) => [...bs.slice(0, i + 1), copy, ...bs.slice(i + 1)])
       setSelected(copy.id)
     },
-    [blocks, setBlocks],
+    [blocks, setBlocks, setSelected],
   )
 
   // Keyboard shortcuts
@@ -105,7 +116,7 @@ export function Builder() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selected, undo, redo, duplicate, remove])
+  }, [selected, undo, redo, duplicate, remove, setSelected])
 
   // ---- drag & drop ----
   const startDrag = (e: DragEvent, data: DragData) => {
@@ -176,6 +187,7 @@ export function Builder() {
       edited: false,
     }))
     flag('template')
+    if (t.famous) flag('famous')
     setSelected(null)
     setShowTemplates(false)
     toast(`Loaded “${t.name}”: training settings updated too. Undo with ⌘Z.`, 'ok')
@@ -192,6 +204,46 @@ export function Builder() {
       toast(`Imported “${res.config.name}”`, 'ok')
     } catch (err) {
       toast(`Import failed: ${(err as Error).message}`, 'error')
+    }
+  }
+
+  /** Replace the selected range with one new custom block that builds the same layers. */
+  const fuse = async (name: string, color: string) => {
+    try {
+      const res = await api.fuse(name, color, range)
+      await refreshBlocks()
+      const b: BlockInst = { id: newId(), type: res.block.type, params: {}, repeat: 1 }
+      const ids = new Set(range.map((r) => r.id))
+      setBlocks((bs) => {
+        const at = bs.findIndex((x) => ids.has(x.id))
+        return at < 0 ? bs : [...bs.slice(0, at), b, ...bs.filter((x, i) => i > at && !ids.has(x.id))]
+      })
+      setSelected(b.id)
+      flag('fuse')
+      toast(`Fused ${range.length} blocks into “${res.block.name}”. It is now in the palette under Custom.`, 'ok')
+    } catch (err) {
+      toast(`Could not fuse: ${(err as Error).message}`, 'error')
+    }
+  }
+
+  /** The opposite: swap a fused block for the blocks it was made from. */
+  const unfuse = (id: string) => {
+    const inst = blocks.find((b) => b.id === id)
+    const parts = inst && specs[inst.type]?.parts
+    if (!inst || !parts?.length) return
+    const out: BlockInst[] = []
+    for (let r = 0; r < inst.repeat; r++) parts.forEach((p) => out.push({ ...p, params: { ...p.params }, repeat: p.repeat || 1, id: newId() }))
+    setBlocks((bs) => bs.flatMap((b) => (b.id === id ? out : [b])))
+    setSelected(null)
+  }
+
+  const exportPython = async () => {
+    try {
+      await downloadPython(toConfig())
+      flag('exportPython')
+      toast('Downloaded a zip with train.py and a script to use the trained model.', 'ok')
+    } catch (err) {
+      toast(`Export failed: ${(err as Error).message}`, 'error')
     }
   }
 
@@ -313,6 +365,9 @@ export function Builder() {
           <button className="ghost" data-tour="export" onClick={() => { flag('export'); downloadJSON({ format: 'lego-ai.run', version: 1, name: draft.name, dataset: { id: draft.dataset, train_subset: draft.train_subset }, architecture: { blocks }, training: draft.training }, `${draft.name.replace(/\W+/g, '_')}.lego.json`) }} disabled={!blocks.length}>
             Export
           </button>
+          <button className="ghost" onClick={exportPython} disabled={!ok} title="Download this model as plain PyTorch: a standalone train.py plus a script to use the trained model">
+            Python
+          </button>
           </>}
           <input ref={fileRef} type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = '' }} />
           {blocks.length > 0 && (
@@ -320,11 +375,14 @@ export function Builder() {
               {ok ? `✓ valid · ${fmtNum(inspect?.total_params)} params` : '✗ needs fixing'}
             </span>
           )}
+          {ok && est && est.verdict !== 'ok' && access.has('train.page') && (
+            <span className={`pill ${verdictTone(est)}`} style={{ cursor: 'pointer' }} title={`${est.headline} Click for details.`} onClick={() => setSelected(null)}>{verdictLabel(est)}</span>
+          )}
           {access.has('train.page') && <button className="primary" disabled={!ok} onClick={() => setTab('train')}>Train →</button>}
         </div>
 
         {blocks.length === 0 && !drag ? (
-          <EmptyState templates={access.has('builder.templates') ? templates : []} specs={specs} onUse={useTemplate} onDragOver={onStackDragOver} onDrop={onStackDrop} dataset={dataset?.name} />
+          <EmptyState templates={access.has('builder.templates') ? templates.filter((t) => !t.famous) : []} specs={specs} onUse={useTemplate} onDragOver={onStackDragOver} onDrop={onStackDrop} dataset={dataset?.name} />
         ) : (
           <div className="stack-wrap" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
             <div className="stack" data-tour="stack" ref={stackRef} onDragOver={onStackDragOver} onDrop={onStackDrop} onDragLeave={(e) => { if (!stackRef.current?.contains(e.relatedTarget as Node)) setInsertAt(null) }}>
@@ -344,9 +402,13 @@ export function Builder() {
                       spec={specs[b.type]}
                       inst={b}
                       report={reports[b.id]}
-                      selected={selected === b.id}
+                      selected={selected === b.id || inRange(b.id)}
                       dragging={drag?.kind === 'move' && drag.id === b.id}
-                      onClick={(e) => { e.stopPropagation(); setSelected(b.id) }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (e.shiftKey && selected && selected !== b.id && access.has('custom.page')) setRangeEnd(b.id)
+                        else setSelected(b.id)
+                      }}
                       onDragStart={(e) => startDrag(e, { kind: 'move', id: b.id })}
                       onDragEnd={endDrag}
                     />
@@ -377,7 +439,9 @@ export function Builder() {
 
       {/* Inspector */}
       <aside className="inspector">
-        {sel ? (
+        {range.length > 1 ? (
+          <FusePanel blocks={range} specs={specs} onFuse={fuse} onCancel={() => setRangeEnd(null)} />
+        ) : sel ? (
           <BlockInspector
             key={sel.id}
             inst={sel}
@@ -391,9 +455,10 @@ export function Builder() {
             }))}
             onDelete={() => remove(sel.id)}
             onDuplicate={() => duplicate(sel.id)}
+            onUnfuse={() => unfuse(sel.id)}
           />
         ) : (
-          <>{!access.has('train.page') && <QuickTrain valid={!!ok} />}<ModelSummary /></>
+          <>{!access.has('train.page') && <QuickTrain valid={!!ok} />}<ModelSummary est={ok && access.has('train.page') ? est : null} /></>
         )}
       </aside>
 
@@ -406,7 +471,12 @@ export function Builder() {
               <button className="ghost" onClick={() => setShowTemplates(false)}>✕</button>
             </div>
             <div className="modal-body">
-              <TemplateGrid templates={templates} specs={specs} onUse={useTemplate} />
+              <TemplateGrid templates={templates.filter((t) => !t.famous)} specs={specs} onUse={useTemplate} />
+              {templates.some((t) => t.famous) && <>
+                <h3 style={{ margin: '22px 0 4px' }}>🏛️ Famous architectures</h3>
+                <p className="small muted" style={{ margin: '0 0 10px' }}>Landmark models from the papers, rebuilt block for block at their published sizes. Some are far too big to train on a laptop: load one to see what it would take.</p>
+                <TemplateGrid templates={templates.filter((t) => t.famous)} specs={specs} onUse={useTemplate} />
+              </>}
               <div className="row" style={{ marginTop: 16 }}>
                 <button onClick={() => { setDraft((d) => ({ ...d, blocks: [], name: 'My model' })); setShowTemplates(false) }}>Start from scratch</button>
                 <span className="small muted">An empty stack: drag blocks in from the palette.</span>
@@ -434,7 +504,7 @@ function templateNeeds(t: Template, access: Access): string[] {
 function TemplateGrid({ templates, specs, onUse }: { templates: Template[]; specs: Record<string, BlockSpec>; onUse: (t: Template) => void }) {
   const { access } = useLearn()
   const rows = templates.map((t) => ({ t, needs: templateNeeds(t, access) }))
-  // Usable templates first (recommended on top), locked ones after.
+  // Usable templates first (recommended on top), locked ones after. Famous models keep their historical order.
   rows.sort((a, b) => Number(a.needs.length > 0) - Number(b.needs.length > 0) || Number(b.t.recommended) - Number(a.t.recommended))
   return (
     <div className="template-grid">
@@ -443,7 +513,13 @@ function TemplateGrid({ templates, specs, onUse }: { templates: Template[]; spec
           <div className="row">
             <h3 className="grow">{needs.length > 0 && '🔒 '}{t.name}</h3>
             {t.recommended && !needs.length && <span className="pill accent">recommended</span>}
+            {t.famous && <span className="pill blue">{t.famous.year}</span>}
           </div>
+          {t.famous && (
+            <div className="tiny muted">
+              {t.famous.authors} · {fmtNum(t.params)} weights · <a href={t.famous.paper} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>paper ↗</a>
+            </div>
+          )}
           {needs.length > 0 && <div className="small warn">Unlock first: {needs.join(', ')}</div>}
           <div className="row" style={{ alignItems: 'flex-end', gap: 14 }}>
             <MiniStack blocks={t.blocks} specs={specs} width={110} />
@@ -478,15 +554,59 @@ function EmptyState({ templates, specs, onUse, onDragOver, onDrop, dataset }: {
   )
 }
 
-function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }: {
+/** Shown when several neighboring blocks are selected: turn them into one reusable block. */
+function FusePanel({ blocks, specs, onFuse, onCancel }: {
+  blocks: BlockInst[]; specs: Record<string, BlockSpec>; onFuse: (name: string, color: string) => Promise<void>; onCancel: () => void
+}) {
+  const [name, setName] = useState('My stage')
+  const [color, setColor] = useState('#7c3aed')
+  const [busy, setBusy] = useState(false)
+  const hasHead = blocks.some((b) => b.type === 'classifier')
+  return (
+    <>
+      <div className="inspector-head">
+        <div className="color-bar" style={{ background: color }} />
+        <h2>{blocks.length} blocks selected</h2>
+        <p className="small muted" style={{ margin: '8px 0 0' }}>
+          Fuse them into <b>one new block</b> you can reuse and repeat like any other. It builds exactly these layers, in this order, with these settings.
+        </p>
+      </div>
+      <div className="inspector-body">
+        <div className="col" style={{ gap: 6, paddingRight: 40 }}>
+          {[...blocks].reverse().map((b) => <Brick key={b.id} spec={specs[b.type]} inst={b} compact />)}
+        </div>
+        <label className="field">
+          <span className="lbl">Name of the new block</span>
+          <input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="field">
+          <span className="lbl">Color</span>
+          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} style={{ width: 64, height: 32, padding: 2 }} />
+        </label>
+        {hasHead && <div className="small warn">The Output Head is part of this selection. Usually you leave it out, so the fused block can be stacked.</div>}
+        <div className="row">
+          <button className="primary" disabled={busy || !name.trim()} onClick={async () => { setBusy(true); await onFuse(name.trim(), color); setBusy(false) }}>
+            {busy ? 'Fusing…' : '🧱 Fuse into one block'}
+          </button>
+          <button onClick={onCancel}>Cancel</button>
+        </div>
+        <div className="tiny faint">The new block is saved as a small Python file on the Custom Blocks tab, where you can rename, edit or delete it.</div>
+      </div>
+    </>
+  )
+}
+
+function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate, onUnfuse }: {
   inst: BlockInst
   spec: BlockSpec | undefined
   report: { in_shape: number[] | null; out_shape: number[] | null; params: number; error: string | null } | undefined
   onChange: (fn: (b: BlockInst) => BlockInst) => void
   onDelete: () => void
   onDuplicate: () => void
+  onUnfuse: () => void
 }) {
   const { access, openLesson } = useLearn()
+  const { blocks: specs } = useStore()
   if (!spec) {
     return (
       <div className="inspector-body">
@@ -537,7 +657,14 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
             {p.type === 'activation' && !actsUnlocked && <span className="tiny faint">🔒 Choosing activations unlocks at level 5</span>}
           </div>
         ))}
-        {spec.params.length === 0 && <div className="small muted">This block has no parameters: its sizes are inferred from its input.</div>}
+        {spec.params.length === 0 && !spec.parts?.length && <div className="small muted">This block has no parameters: its sizes are inferred from its input.</div>}
+        {!!spec.parts?.length && <>
+          <h4>Made of</h4>
+          <div className="col" style={{ gap: 6, paddingRight: 40 }}>
+            {[...spec.parts].reverse().map((p, i) => <Brick key={i} spec={specs[p.type]} inst={{ ...p, id: String(i), repeat: p.repeat || 1 }} compact />)}
+          </div>
+          <button className="sm" onClick={onUnfuse} title="Replace this block with the blocks it was made from, so you can edit them">Unfuse back into {spec.parts.length} blocks</button>
+        </>}
 
         <div className="row" style={{ marginTop: 6 }}>
           <button onClick={onDuplicate} title="⌘D">Duplicate</button>
@@ -550,8 +677,9 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
   )
 }
 
-function ModelSummary() {
+function ModelSummary({ est }: { est: Estimate | null }) {
   const { draft, inspect, dataset, blocks: specs } = useStore()
+  const { access } = useLearn()
   const counts = useMemo(() => {
     const c: Record<string, number> = {}
     draft.blocks.forEach((b) => (c[b.type] = (c[b.type] ?? 0) + b.repeat))
@@ -589,12 +717,17 @@ function ModelSummary() {
             ))}
           </div>
         )}
+        {est && <>
+          <h4>Can this computer train it?</h4>
+          <SizeAdvisor est={est} compact />
+        </>}
         <h4>Tips</h4>
         <ul className="small muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
           <li>Click a block to edit its parameters here.</li>
           <li>Data flows <b>upward</b>: the shape after each block is shown on the arrows.</li>
           <li>Input sizes are inferred automatically: you only choose output sizes.</li>
           <li>End with an <b>Output Head</b>; it sizes itself to the dataset.</li>
+          {access.has('custom.page') && <li><span className="kbd">⇧</span>-click a second block to select everything in between, then <b>fuse</b> it into one block.</li>}
           <li><span className="kbd">⌫</span> delete · <span className="kbd">⌘D</span> duplicate · <span className="kbd">⌘Z</span> undo</li>
         </ul>
       </div>

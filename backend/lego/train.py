@@ -51,12 +51,15 @@ def build_model(config: dict, *, seed: int | None = None):
     """
     info = datasets.info_for(config["dataset"])
     overlay = custom.build_registry_overlay(config.get("custom_blocks"))
+    # Runs saved before "init_stream" existed drew their shape-check batches from the weight stream.
+    legacy = int(config.get("init_stream") or 1) < 2
+    kw = dict(strict=True, overlay=overlay, legacy_stream=legacy)
     if seed is None:
-        net, report = modelmod.build(config["architecture"], info.input_shape, info.ctx(), strict=True, overlay=overlay)
+        net, report = modelmod.build(config["architecture"], info.input_shape, info.ctx(), **kw)
         return net, info, report
     with isolated():
         torch.manual_seed(seed)
-        net, report = modelmod.build(config["architecture"], info.input_shape, info.ctx(), strict=True, overlay=overlay)
+        net, report = modelmod.build(config["architecture"], info.input_shape, info.ctx(), **kw)
     return net, info, report
 
 

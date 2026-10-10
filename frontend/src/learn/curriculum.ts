@@ -160,7 +160,7 @@ export const SKILLS: SkillNode[] = [
   // Image
   { id: 'conv', title: 'Convolution', branch: 'image', blocks: ['conv2d'], datasets: ['cifar10'], requires: [], year: 1989, lesson: 'block.conv2d', blurb: 'Small filters that slide over the image. Unlocks CIFAR-10.', col: 0, row: 0 },
   { id: 'pooling', title: 'Pooling', branch: 'image', blocks: ['maxpool2d', 'avgpool2d', 'global_avgpool'], requires: ['conv'], year: 1989, lesson: 'block.pooling', blurb: 'Shrink feature maps, keep what matters.', col: 0, row: 1 },
-  { id: 'resnet', title: 'Residual blocks', branch: 'image', blocks: ['resblock'], requires: ['pooling'], year: 2015, lesson: 'block.resblock', blurb: 'Skip connections make very deep CNNs trainable.', col: 0, row: 2 },
+  { id: 'resnet', title: 'Residual blocks', branch: 'image', blocks: ['resblock', 'bottleneck'], requires: ['pooling'], year: 2015, lesson: 'block.resblock', blurb: 'Skip connections make very deep CNNs trainable.', col: 0, row: 2 },
   { id: 'depthwise', title: 'Depthwise conv', branch: 'image', blocks: ['depthwise_conv'], requires: ['resnet'], year: 2017, lesson: 'block.depthwise_conv', blurb: 'MobileNet’s cheap convolutions.', col: 0, row: 3 },
   { id: 'vit', title: 'Vision Transformer', branch: 'image', blocks: ['patch_embed'], requires: ['resnet', 'transformer'], year: 2020, lesson: 'block.patch_embed', blurb: 'Cut images into patches and use a transformer.', col: 1, row: 3 },
   { id: 'mixer', title: 'MLP-Mixer', branch: 'image', blocks: ['mixer'], requires: ['vit'], year: 2021, lesson: 'block.mixer', blurb: 'Attention-free mixing with plain MLPs.', col: 1, row: 4 },
@@ -349,6 +349,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'a.chat', icon: '💬', title: 'Small Talk', desc: 'Chat with a text model you trained.', xp: 100, done: f('chat') },
   { id: 'a.seeds', icon: '🎲', title: 'Statistician', desc: 'Train a model with several seeds to measure how much luck is involved.', xp: 100, done: f('seeds') },
   { id: 'a.artist', icon: '🎨', title: 'Function Artist', desc: 'Train a model with an activation function you drew yourself.', xp: 75, done: (s) => s.blocksTrained.includes('drawn_activation') },
+  { id: 'a.fuse', icon: '🧱', title: 'Master Builder', desc: 'Fuse several blocks into one new block of your own.', xp: 75, done: f('fuse') },
+  { id: 'a.python', icon: '🐍', title: 'Leaving the Nest', desc: 'Export a model as standalone Python scripts.', xp: 75, done: f('exportPython') },
+  { id: 'a.famous', icon: '🏛️', title: 'Standing on Shoulders', desc: 'Load a famous architecture from the Templates.', xp: 50, done: f('famous') },
   { id: 'a.regular', icon: '📋', title: 'Regular', desc: 'Complete 10 training runs.', xp: 75, done: (s) => s.runs >= 10 },
 ]
 

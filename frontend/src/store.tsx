@@ -16,6 +16,8 @@ export interface Draft {
   blocks: BlockInst[]
   training: Training
   custom_blocks?: RunConfig['custom_blocks']
+  /** Set when an imported run used the original weight-initialization scheme, so retraining it matches. */
+  init_stream?: number
   /** Where the architecture came from, and whether the user has changed it since (for quests). */
   origin?: 'lab' | 'template' | 'challenge' | 'import' | 'scratch'
   edited?: boolean
@@ -314,6 +316,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       architecture: { blocks: draft.blocks },
       training: effectiveTraining(draft.training),
       custom_blocks: draft.custom_blocks,
+      ...(draft.origin === 'import' && draft.init_stream ? { init_stream: draft.init_stream } : {}),
     }),
     [draft, effectiveTraining],
   )
@@ -363,6 +366,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         blocks: cfg.architecture.blocks.map((b) => ({ ...b, id: b.id || newId(), repeat: b.repeat || 1 })),
         training: { ...(meta?.defaults ?? {}), ...cfg.training },
         custom_blocks: cfg.custom_blocks,
+        init_stream: cfg.init_stream ?? (cfg.environment ? 1 : undefined),
         origin: 'import',
         edited: false,
       }))

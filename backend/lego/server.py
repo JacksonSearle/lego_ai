@@ -9,11 +9,11 @@ import json
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import blocks  # noqa: F401  (registers built-ins)
-from . import batchsize, config as cfgmod, custom, datasets, hardware, jobs, model as modelmod, predict, progress, runs, seeds, templates, tuner
+from . import batchsize, config as cfgmod, custom, datasets, export, hardware, jobs, model as modelmod, predict, progress, runs, seeds, templates, tuner
 from .registry import CATEGORY_ORDER, REGISTRY
 from .train import train_run
 
@@ -117,6 +117,9 @@ def delete_custom(filename: str):
 def _prepare_config(raw: dict) -> dict:
     """Normalize a config from the UI and embed the source of any custom blocks it uses."""
     cfg = cfgmod.normalize(raw)
+    # A config that did not come from an existing run starts on the current initialization scheme.
+    if "init_stream" not in cfg and "environment" not in raw:
+        cfg["init_stream"] = 2
     used = {b["type"] for b in cfg["architecture"]["blocks"]}
     embedded = cfg.get("custom_blocks") or {}
     current = custom.sources_for(used)
@@ -226,6 +229,56 @@ def train_seeds(body: dict = Body(...)):
 @app.get("/api/hardware")
 def hardware_report():
     return hardware.report()
+
+
+@app.post("/api/estimate")
+def estimate_model(body: dict = Body(...)):
+    """Memory and time needed to train a model here and on reference GPUs (pure arithmetic, no model is built)."""
+    try:
+        info = datasets.get_info(body["dataset"], body.get("seq_len"))
+    except (KeyError, ValueError) as e:
+        _bad(e)
+    n = info.train_size or 0
+    if body.get("train_subset"):
+        n = min(n, int(body["train_subset"])) if n else int(body["train_subset"])
+    return hardware.estimate(
+        int(body.get("params", 0)), int(body.get("act_bytes", 0)), int(body.get("flops", 0)),
+        int(body.get("batch_size") or 128), str(body.get("optimizer") or "adamw"), n,
+        int(body.get("epochs") or 1), str(body.get("device") or "cpu"),
+    )
+
+
+@app.post("/api/custom-blocks/fuse")
+def fuse_blocks(body: dict = Body(...)):
+    """Turn a run of blocks into one new custom block."""
+    try:
+        spec = custom.fuse(body.get("name", ""), body.get("color", ""), body.get("blocks") or [])
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=400)
+    return {"ok": True, "block": spec.to_json()}
+
+
+def _zip(raw: dict) -> Response:
+    try:
+        name, data = export.export_zip(raw)
+    except Exception as e:  # noqa: BLE001
+        _bad(ValueError(f"Could not export this model: {e}"))
+    return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@app.post("/api/export")
+def export_draft(body: dict = Body(...)):
+    """A model as standalone Python (train.py plus generate.py or predict.py), zipped."""
+    try:
+        cfg = _prepare_config(body)
+    except (ValueError, KeyError, TypeError) as e:
+        _bad(e)
+    return _zip(cfg)
+
+
+@app.get("/api/runs/{run_id}/export")
+def export_run(run_id: str):
+    return _zip(runs.get(run_id)["config"])
 
 
 @app.get("/api/studies")

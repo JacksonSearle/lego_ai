@@ -227,7 +227,8 @@ function RunDetailPanel({ id, onClose, onChanged }: { id: string; onClose: () =>
             Retrain from scratch
           </button>
           <a className="btn" href={`/api/runs/${run.id}/config`} download onClick={() => flag('export')}>Download config</a>
-          {run.has_checkpoint && <a className="btn" href={`/api/runs/${run.id}/checkpoint?which=best`} download>Weights (.pt)</a>}</>}
+          {run.has_checkpoint && <a className="btn" href={`/api/runs/${run.id}/checkpoint?which=best`} download>Weights (.pt)</a>}
+          <a className="btn" href={`/api/runs/${run.id}/export`} download onClick={() => flag('exportPython')} title="This model as plain PyTorch: a standalone train.py plus a script to use the trained model">Python scripts</a></>}
         </div>
         {access.has('train.resume') && run.has_checkpoint && run.status !== 'running' && (
           <div className="row">

@@ -24,8 +24,7 @@ import psutil
 import torch
 
 from . import model as modelmod
-from .rng import isolated
-from .train import apply_dropout_override, build_model, resolve_device
+from .train import build_model, resolve_device
 
 CANDIDATES = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
 SAFETY = 0.7  # fraction of free memory we are willing to plan for
@@ -49,11 +48,9 @@ def plan(config: dict) -> dict:
     """Cheap, in-process part: build the model on the CPU and estimate memory per batch size."""
     t = config["training"]
     device = resolve_device(t["device"])
-    net, info, _ = build_model(config, seed=0)
-    apply_dropout_override(net, t.get("dropout"))
+    net, info, report = build_model(config, seed=0)
     n_params = modelmod.count_params(net)
-    with isolated():
-        act = modelmod.activation_bytes_per_sample(net, info.input_shape, info.input_kind)
+    act = report.act_bytes_per_sample
     del net
     opt_slots = {"adam": 2, "adamw": 2, "sgd": 1, "rmsprop": 2, "adagrad": 1}.get(t["optimizer"], 2)
     budget, label = _budget(device)

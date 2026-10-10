@@ -1,5 +1,5 @@
 import type {
-  Predictions, Samples, Evaluation, InputPrediction, Generation, BlockSpec, DatasetInfo, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
+  Predictions, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -25,6 +25,10 @@ export const api = {
   inspect: (dataset: string, architecture: RunConfig['architecture'], seq_len?: number | null) =>
     req<InspectResult>('POST', '/api/inspect', { dataset, architecture, seq_len }),
   hardware: () => req<Hardware>('GET', '/api/hardware'),
+  estimate: (body: { dataset: string; seq_len?: number | null; train_subset?: number | null; params: number; act_bytes: number; flops: number; batch_size: number; optimizer: string; epochs: number; device: string }) =>
+    req<Estimate>('POST', '/api/estimate', body),
+  fuse: (name: string, color: string, blocks: BlockInst[]) =>
+    req<{ ok: boolean; block: BlockSpec }>('POST', '/api/custom-blocks/fuse', { name, color, blocks }),
   trainSeeds: (config: RunConfig, n: number) => req<{ job: Job }>('POST', '/api/train-seeds', { config, n }),
   profiles: () => req<{ active: string; profiles: ProfileInfo[] }>('GET', '/api/profiles'),
   createProfile: (name: string, opts?: { demo?: boolean; progress?: unknown }) =>
@@ -106,6 +110,18 @@ export function downloadJSON(data: unknown, filename: string) {
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = filename
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+/** Download a model as standalone Python scripts (a zip with train.py and generate.py or predict.py). */
+export async function downloadPython(config: RunConfig) {
+  const res = await fetch('/api/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) })
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail ?? res.statusText)
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? 'model_python.zip'
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(await res.blob())
+  a.download = name
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
 }

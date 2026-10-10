@@ -11,6 +11,7 @@ source of any custom blocks, and the software/hardware environment it ran on.
       "architecture": {"blocks": [...]},
       "training": {...},
       "custom_blocks": {"file.py": {"source": "...", "sha256": "..."}},
+      "init_stream": 2,               # weight-initialization scheme (absent = 1, the original)
       "environment": {...}            # filled in when training starts
     }
 """
@@ -116,6 +117,10 @@ def normalize(cfg: dict) -> dict:
         "training": {**DEFAULT_TRAINING, **{k: v for k, v in (cfg.get("training") or {}).items() if k in DEFAULT_TRAINING}},
         "custom_blocks": cfg.get("custom_blocks") or {},
     }
+    # How weights are initialized: 1 = original behavior, 2 = shape checks no longer share the
+    # weight random stream (so an exported script reproduces the run). Absent means 1.
+    if cfg.get("init_stream"):
+        out["init_stream"] = int(cfg["init_stream"])
     if "environment" in cfg:
         out["environment"] = cfg["environment"]
     for i, b in enumerate(out["architecture"]["blocks"]):

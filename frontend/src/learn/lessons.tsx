@@ -227,6 +227,38 @@ export const LESSONS: Lesson[] = [
     </>,
   },
   {
+    id: 'app.python', section: 'app', title: 'Exporting real Python: train.py and generate.py', summary: 'Take your model out of the app as plain PyTorch code.', unlock: { feature: 'config.io' },
+    body: <>
+      <P>The blocks you stack are a friendly face on ordinary <b>PyTorch</b> code. Press <b>Python</b> in the Builder toolbar (or <b>Python scripts</b> on a run in the Leaderboard) to download that code as a zip:</P>
+      <ul>
+        <li><b>train.py</b>: your model written out layer by layer with its real sizes, the code that loads the dataset, and the full training loop. All settings sit in one <code>CONFIG</code> dictionary at the top.</li>
+        <li><b>generate.py</b> for text generators, or <b>predict.py</b> for classifiers: loads the trained weights and lets you use the model from the command line.</li>
+        <li><b>config.lego.json</b>: the same model as a Lego AI config, so you can import it back.</li>
+      </ul>
+      <P>The scripts need only PyTorch (plus torchvision for image datasets), not this app:</P>
+      <pre className="json">{`pip install torch torchvision
+python train.py
+python generate.py "ROMEO:" --length 400`}</pre>
+      <P>The script follows the app’s training procedure step for step. With the same seed on the CPU it reaches exactly the same test accuracy as the run in your Leaderboard. That makes it a good way to learn: read a line, find the matching block or setting in the app, change it and see what happens.</P>
+      <Tip>This is also how to train on a bigger machine: copy the folder to a computer with a strong GPU, set <code>"device": "cuda"</code> in CONFIG and run it there.</Tip>
+    </>,
+  },
+  {
+    id: 'app.famous', section: 'app', title: 'Famous architectures', summary: 'LeNet, VGG, every ResNet, both original Transformers, ViT and GPT-2, rebuilt from blocks.', unlock: { feature: 'builder.templates' },
+    body: <>
+      <P>The <b>Templates</b> window has a second section: <b>Famous architectures</b>. Each one rebuilds a landmark model from its paper, block for block, at the published size, adapted only as much as needed to accept this app’s small datasets.</P>
+      <ul>
+        <li><b>LeNet-5</b> (1998): the first successful CNN. About 60 thousand weights. Trains in seconds.</li>
+        <li><b>VGG-16</b> (2014): just 3×3 convolutions, stacked deep. About 15 million weights.</li>
+        <li><b>ResNet-18, 34, 50, 101 and 152</b> (2015): skip connections made very deep networks trainable. The three largest use the <b>Bottleneck</b> block: a 1×1 convolution to shrink, a 3×3 to compute, a 1×1 to expand.</li>
+        <li><b>Transformer base and big</b> (2017): the two sizes from “Attention Is All You Need”: 6 layers at width 512 with 8 heads, and 6 layers at width 1024 with 16 heads.</li>
+        <li><b>ViT-Base</b> (2020) and <b>GPT-2 small</b> (2019): 12 transformer layers at width 768.</li>
+      </ul>
+      <P>Loading one is free, so look inside: count the blocks, read the shapes on the arrows, compare the weight counts. Training is another matter. Most of these needed days on several GPUs, and the app will tell you so: watch for the warning next to the Train button.</P>
+      <Tip>These models were designed for far bigger datasets than CIFAR-10 or Tiny Shakespeare. On small data a small model often wins, and it always trains faster. Try a famous model with one or two stages removed.</Tip>
+    </>,
+  },
+  {
     id: 'app.resume', section: 'app', title: 'Pausing & resuming training', summary: 'Stop now, continue later, from exactly where you were.', unlock: { feature: 'train.resume' },
     body: <>
       <P>While a model trains, the big button on the Train page becomes <b>⏸ Pause</b>. Pausing saves a <b>checkpoint</b>: the weights, the optimizer’s memory, the learning-rate schedule, how far through the data it was, and every random-number generator’s state. Press <b>▶ Resume</b> and training carries on from the very next batch, with exactly the same result as if it had never stopped.</P>
@@ -265,6 +297,20 @@ export const LESSONS: Lesson[] = [
       <P>Each trial is saved as a normal run, so the best one can be reproduced or resumed.</P>
     </>,
     paper: { title: 'Optuna: A Next-generation Hyperparameter Optimization Framework', url: 'https://arxiv.org/abs/1907.10902', authors: 'T. Akiba et al.', year: 2019 },
+  },
+  {
+    id: 'app.fuse', section: 'app', title: 'Fusing blocks into your own block', summary: 'Select a few blocks and turn them into one reusable block. No code needed.', unlock: { feature: 'custom.page' }, action: { tab: 'build', label: 'Open the Builder' },
+    body: <>
+      <P>Real architectures are built from repeated <b>stages</b>: “convolution, batch norm, pooling” or “attention, then feed-forward”. When you find a group of blocks you keep stacking together, fuse it into one block of your own.</P>
+      <ol>
+        <li>In the Builder, click the first block of the group.</li>
+        <li>Hold <span className="kbd">⇧ Shift</span> and click the last one. Everything in between is selected.</li>
+        <li>In the side panel, give the new block a name and a color and press <b>Fuse into one block</b>.</li>
+      </ol>
+      <P>The group is replaced by a single brick, and the new block appears in the palette under <b>Custom</b>. Use it like any other block: drag it in again, or set <b>Repeat</b> to stack the whole stage several times. Each copy gets its own weights and works out its own input sizes.</P>
+      <P>Select a fused block to see what it is made of. <b>Unfuse</b> swaps it back for the original blocks when you want to change a setting inside.</P>
+      <Tip>A fused block is saved as a tiny Python file on the Custom Blocks tab: a list of its parts. Opening it is a gentle first look at how blocks are defined in code.</Tip>
+    </>,
   },
   {
     id: 'app.custom', section: 'app', title: 'Your first custom block', summary: 'A hand-held walkthrough of writing a block in Python.', unlock: { feature: 'custom.page' }, action: { tab: 'custom', label: 'Open Custom Blocks' },
@@ -385,6 +431,7 @@ export const LESSONS: Lesson[] = [
       <P>Training is mostly multiplying big grids of numbers. A <b>CPU</b> does this on a handful of cores. A <b>GPU</b> (graphics processor) does thousands of these multiplications at once, which is why modern AI runs on GPUs. The Train page’s <b>Hardware</b> tab shows what this computer has and where each epoch’s time is going.</P>
       <P><b>What fits on a laptop.</b> Everything in the early levels: MLPs and small CNNs on MNIST train in seconds on a CPU. Small LSTMs and transformers on Tiny Shakespeare take minutes. A real CNN on CIFAR-10 takes tens of minutes on a laptop GPU and much longer on a CPU. If a run would take hours, shrink it first: fewer epochs, a training subset, a smaller model, a shorter sequence length.</P>
       <P><b>Memory is usually the first limit.</b> A GPU can only train what fits in its memory. Use “Check what fits in memory” to find a batch size that works. On Apple Silicon Macs the GPU shares memory with everything else, so closing other apps really does help.</P>
+      <P><b>Will it fit, and how long will it take?</b> The app estimates this for every model before you train. It adds up the memory for the weights, their gradients and the optimizer’s notes, plus the numbers every layer produces for each example in a batch. It also counts the multiplications in one pass and compares that with a quick speed test of this computer. If the model is too big or very slow, a warning appears next to the Train button, and the Hardware tab lists what it would take: this computer’s CPU and GPU, and four well-known GPUs from a free cloud card to a data-center one, with how many of each you would need and roughly how long an epoch would take. Treat the times as rough: within a factor of two is a good guess.</P>
       <P><b>Reading the time bar.</b> If most time is “model math”, a faster GPU or a smaller model is what helps. If “preparing data” is large, a faster GPU will not help: use a bigger batch or less augmentation. If “validation” dominates, your training subset is tiny compared with the validation set.</P>
       <P><b>Getting something bigger</b>, roughly from free to costly:</P>
       <ul>
@@ -394,7 +441,7 @@ export const LESSONS: Lesson[] = [
         <li><b>Renting by the hour.</b> Cloud providers and GPU rental marketplaces rent machines by the hour. Prices vary a lot with the GPU model, so compare before you start, and always shut the machine down when you finish: it bills while idle.</li>
         <li><b>Buying.</b> A desktop with a recent consumer GPU is enough for everything in this app and for a lot of real research at small scale.</li>
       </ul>
-      <P>To use another machine, install Lego AI there, export your model as JSON here and import it there. The config carries everything needed to train the same model.</P>
+      <P>To use another machine, either install Lego AI there and import your model’s JSON, or press <b>Python</b> in the Builder to export a standalone <code>train.py</code> that runs anywhere PyTorch does.</P>
       <Tip>Before paying for anything, make the idea work small. A model that does not learn on a subset on your laptop will not start learning on a bigger GPU.</Tip>
     </>,
   },
@@ -556,6 +603,7 @@ const BLOCK_LESSONS: BlockLessonDef[] = [
     body: <>
       <P>Before 2015, making a CNN deeper than ~20 layers often made it <i>worse</i>: signals and gradients faded as they passed through so many layers. He et al. fixed this with a simple trick: add the block’s input to its output. The block only has to learn the <i>difference</i> F(x), and the shortcut gives gradients a highway back to early layers.</P>
       <P>ResNets with 152 layers won ImageNet in 2015. Shortcuts like this are now in almost every deep model, including transformers.</P>
+      <P>The deepest ResNets (50, 101 and 152 layers) use a cheaper variant, the <b>Bottleneck</b> block: a 1×1 convolution shrinks the channels, a 3×3 does the work on the thin version, and another 1×1 expands to four times the width. You can load all five ResNet sizes from Templates → Famous architectures.</P>
     </>,
     paramNotes: { out_channels: '0 keeps the channel count. If it changes, the shortcut uses a 1×1 conv to match.', stride: '2 halves the resolution (the shortcut is downsampled to match).' },
     code: [
@@ -723,7 +771,7 @@ const BLOCK_LESSONS: BlockLessonDef[] = [
 
 // Blocks covered by another block's lesson.
 export const LESSON_FOR_BLOCK: Record<string, string> = {
-  drawn_activation: 'block.activation', maxpool2d: 'block.pooling', avgpool2d: 'block.pooling', global_avgpool: 'block.pooling', layernorm: 'block.batchnorm', gru: 'block.lstm',
+  drawn_activation: 'block.activation', maxpool2d: 'block.pooling', avgpool2d: 'block.pooling', global_avgpool: 'block.pooling', layernorm: 'block.batchnorm', gru: 'block.lstm', bottleneck: 'block.resblock',
 }
 
 for (const b of BLOCK_LESSONS) {

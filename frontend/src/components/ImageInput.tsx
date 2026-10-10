@@ -39,7 +39,7 @@ export function ImageInput({ shape, onPixels, allowDraw }: Props) {
   }
   useEffect(clear, [mode])
 
-  /** Reduce the drawing to the model's size, centred and scaled like the training digits. */
+  /** Reduce the drawing to the model's size, centered and scaled like the training digits. */
   const sendDrawing = () => {
     const src = pad.current!
     const data = src.getContext('2d')!.getImageData(0, 0, PAD, PAD).data
@@ -71,7 +71,7 @@ export function ImageInput({ shape, onPixels, allowDraw }: Props) {
     onPixels(Array.from({ length: h * w }, (_, i) => px[i * 4]))
   }
 
-  /** Centre-crop a photo to the model's shape. Grayscale models get brightness, colour models RGB planes. */
+  /** Center-crop a photo to the model's shape. Grayscale models get brightness, color models RGB planes. */
   const sendPhoto = (img: HTMLImageElement, inv: boolean) => {
     const out = document.createElement('canvas')
     out.width = w

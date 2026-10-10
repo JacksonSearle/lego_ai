@@ -18,6 +18,7 @@ Build signature::
 """
 from __future__ import annotations
 
+import functools
 import inspect
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
@@ -110,6 +111,26 @@ class Param:
         return v
 
 
+class LegoModule(nn.Module):
+    """Base class for the modules behind built-in blocks.
+
+    It remembers the arguments each instance was constructed with, which is what lets a
+    model be written out as plain PyTorch code (``ClassName(args...)``) by the exporter.
+    """
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        original = cls.__init__
+
+        @functools.wraps(original)
+        def init(self, *args, **kw):
+            if "_lego_args" not in self.__dict__:
+                object.__setattr__(self, "_lego_args", (args, kw))
+            original(self, *args, **kw)
+
+        cls.__init__ = init
+
+
 @dataclass
 class BuildContext:
     task: str  # "classification" | "lm"
@@ -117,6 +138,9 @@ class BuildContext:
     vocab_size: int | None = None
     seq_len: int | None = None
     input_kind: str = "vector"  # "image" | "tokens" | "vector"
+    # What is flowing into the block being built right now: "tokens" (integer ids) or "float".
+    # Set by the model builder; lets composite blocks build their parts correctly.
+    current_kind: str | None = None
 
 
 @dataclass
@@ -136,6 +160,8 @@ class BlockSpec:
     # Which kinds of task the block is typically used for: "image", "text", "general".
     tags: list[str] = field(default_factory=lambda: ["general"])
     year: int | None = None
+    # Fused blocks only: the blocks this one was made from (so it can be taken apart again).
+    parts: list[dict] | None = None
 
     def to_json(self) -> dict:
         return {
@@ -151,6 +177,7 @@ class BlockSpec:
             "source_file": self.source_file,
             "tags": self.tags,
             "year": self.year,
+            "parts": self.parts,
         }
 
     def resolve_params(self, raw: dict | None) -> dict:

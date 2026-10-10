@@ -94,6 +94,18 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
 - **Dataset difficulty.** Each dataset is labeled easy, medium or hard, with baseline, good and
   great accuracies to aim for.
 - **Drawn Activation.** A block whose activation function you sketch by hand.
+- **Fuse blocks.** In the Builder, click a block, shift-click another and fuse everything in
+  between into one new block (saved as a small Python file under Custom Blocks). Unfuse turns it
+  back into its parts.
+- **Export to Python.** The Builder's Python button, or Python scripts on a run, downloads a zip
+  with a standalone `train.py` (the model as plain PyTorch, data loading, training loop) and
+  `generate.py` for text generators or `predict.py` for classifiers. It needs only torch (and
+  torchvision for image datasets) and reproduces the app's result exactly on CPU.
+- **Famous architectures.** Templates include LeNet-5, VGG-16, ResNet-18/34/50/101/152, ViT-Base,
+  both Transformer sizes from "Attention Is All You Need" and GPT-2 small, at published sizes.
+- **Size advisor.** Every model gets a memory and time estimate. If it is too big or very slow for
+  this computer, the Builder and the Hardware tab say so and list how many T4, RTX 4090, A100 or
+  H100 GPUs it would take, with rough epoch times.
 
 ## Blocks
 
@@ -128,6 +140,9 @@ A run config (`*.lego.json`) records:
 - every hyperparameter and the seed
 - the full **source code of any custom blocks** used, with its sha256
 - the environment: Python, torch and numpy versions, platform, thread count
+- `init_stream`: the weight-initialization scheme. New runs use 2 (shape checks draw from a private
+  generator, so an exported `train.py` gets the same weights). Older configs without the field
+  keep the original scheme and still reproduce exactly.
 
 Training uses one seed for weight init, shuffling, augmentation and dropout. Batches come from
 seeded in-memory permutations (no DataLoader workers), deterministic algorithms are on, and
@@ -194,7 +209,8 @@ backend/lego/
   batchsize.py    memory probe
   tuner.py        Optuna studies
   seeds.py        multi-seed groups
-  hardware.py     hardware report
+  hardware.py     hardware report, memory/time estimates for this machine and reference GPUs
+  export.py       standalone train.py / generate.py / predict.py
   progress.py     learner profiles
   probe_worker.py batch-size tests in a child process
   runs.py, jobs.py   storage, background jobs + event streams
@@ -202,6 +218,6 @@ backend/lego/
 frontend/src/
   pages/          Lab, Builder, Train, Leaderboard, Explore, CustomBlocks
   learn/          curriculum, lessons, diagrams, guidebook, teacher demo
-  components/     Brick, ParamField, LineChart, LiveCharts, ArchView
+  components/     Brick, ParamField, LineChart, LiveCharts, ArchView, SizeAdvisor
   store.tsx       app state, undo/redo, live job stream
 ```
