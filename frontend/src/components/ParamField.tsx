@@ -1,3 +1,5 @@
+import { NumInput } from './NumInput'
+
 interface FieldSpec {
   name: string
   label: string
@@ -19,7 +21,7 @@ interface Props {
   showDefault?: boolean
 }
 
-/** A labelled form control generated from a parameter spec (shared by block params and hyperparameters). */
+/** A labeled form control generated from a parameter spec (shared by block params and hyperparameters). */
 export function ParamField({ spec, value, onChange, disabled, showDefault = true }: Props) {
   const v = value === undefined ? spec.default : value
   const isDefault = JSON.stringify(v) === JSON.stringify(spec.default)
@@ -73,24 +75,18 @@ export function ParamField({ spec, value, onChange, disabled, showDefault = true
   }
 
   if (spec.type === 'int' || spec.type === 'float') {
-    const step = spec.step ?? (spec.type === 'int' ? 1 : 'any')
     return (
       <label className="field">
         {label}
-        <input
-          type="number"
-          value={v === null || v === undefined ? '' : String(v)}
+        <NumInput
+          value={v as number | null}
+          int={spec.type === 'int'}
+          min={spec.min}
+          max={spec.max}
           placeholder={spec.nullable ? 'off' : undefined}
-          min={spec.min ?? undefined}
-          max={spec.max ?? undefined}
-          step={step}
           disabled={disabled}
-          onChange={(e) => {
-            const raw = e.target.value
-            if (raw === '') return onChange(spec.nullable ? null : spec.default)
-            const n = spec.type === 'int' ? parseInt(raw, 10) : parseFloat(raw)
-            if (!Number.isNaN(n)) onChange(n)
-          }}
+          emptyValue={spec.nullable ? null : (spec.default as number)}
+          onChange={onChange}
         />
         {help}
       </label>

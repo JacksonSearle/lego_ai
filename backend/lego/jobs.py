@@ -22,6 +22,7 @@ class Job:
         self.events: list[dict] = []
         self.created_at = time.time()
         self.stop_event = threading.Event()
+        self.done_event = threading.Event()  # set once the job's thread has completely finished
         self._lock = threading.Lock()
 
     def emit(self, event: dict):
@@ -70,7 +71,15 @@ def start(kind: str, fn: Callable[[Job], Any], meta: dict | None = None) -> Job:
             job.status = "failed"
             job.error = f"{type(e).__name__}: {e}"
             job.emit({"type": "error", "message": job.error, "traceback": traceback.format_exc(limit=6)})
+        # The job function's locals (model, optimizer, batches) are gone now: return their memory.
+        try:
+            from .train import release_memory
+
+            release_memory()
+        except Exception:  # noqa: BLE001  - cleanup must never turn a finished job into a failure
+            pass
         job.emit({"type": "job_end", "status": job.status, "error": job.error})
+        job.done_event.set()
 
     threading.Thread(target=runner, name=f"job-{kind}-{job.id}", daemon=True).start()
     return job

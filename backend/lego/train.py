@@ -212,6 +212,7 @@ def train_run(
         start_epoch, global_step = 0, 0
         best = {"val_acc": -1.0, "val_loss": float("inf"), "epoch": None}
         history = {"steps": [], "epochs": []}
+        partial = None  # set when resuming a run that was paused in the middle of an epoch
         if resume:
             ckpt = torch.load(runs.checkpoint_path(run_id, "last"), map_location=device, weights_only=False)
             net.load_state_dict(ckpt["model"])
@@ -221,17 +222,28 @@ def train_run(
             rng.load(ckpt["rng"])
             data_gen.set_state(ckpt["data_gen"])
             aug_gen.set_state(ckpt["aug_gen"])
+            partial = ckpt.get("partial")
             history = runs.metrics(run_id)
             history["steps"] = [s for s in history["steps"] if s["step"] <= global_step]
             history["epochs"] = [e for e in history["epochs"] if e["epoch"] <= start_epoch]
 
         emit({
             "type": "start", "name": config["name"], "params": n_params, "epochs": t["epochs"],
-            "steps_per_epoch": steps_per_epoch, "total_steps": total_steps, "resume_epoch": start_epoch,
-            "history": history if resume else None, "device": str(device),
+            "steps_per_epoch": steps_per_epoch, "total_steps": total_steps,
+            "resume_epoch": start_epoch + (partial["batch"] / steps_per_epoch if partial else 0),
+            "history": history if resume else None, "device": str(device), "train_examples": n,
         })
-        run["summary"].update({"params": n_params, "steps_per_epoch": steps_per_epoch})
+        run["summary"].update({"params": n_params, "steps_per_epoch": steps_per_epoch, "train_examples": n})
+        run["summary"].pop("paused_at", None)
         runs.save(run)
+
+        def checkpoint(epochs_done: int, partial_state: dict | None = None) -> dict:
+            return {
+                "model": net.state_dict(), "optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
+                "epoch": epochs_done, "global_step": global_step, "best": best,
+                "rng": rng.state(), "data_gen": data_gen.get_state(), "aug_gen": aug_gen.get_state(),
+                "partial": partial_state,
+            }
 
         log_every = max(1, steps_per_epoch // 40)
         net.train()
@@ -241,13 +253,34 @@ def train_run(
             if global_step >= total_steps:
                 break
             ep_start = time.time()
-            perm = torch.randperm(n, generator=data_gen)
-            acc_loss = torch.zeros((), device=device)
-            acc_correct = torch.zeros((), device=device)
-            acc_count = 0
-            ep_loss, ep_correct, ep_count = 0.0, 0, 0
-            for b in range(steps_per_epoch):
+            if partial:
+                # Continue the interrupted epoch: same shuffled order, same running totals.
+                perm, first_batch = partial["perm"], partial["batch"]
+                acc_loss = torch.tensor(partial["acc_loss"], device=device)
+                acc_correct = torch.tensor(partial["acc_correct"], device=device)
+                acc_count = partial["acc_count"]
+                ep_loss, ep_correct, ep_count = partial["ep_loss"], partial["ep_correct"], partial["ep_count"]
+                partial = None
+            else:
+                perm, first_batch = torch.randperm(n, generator=data_gen), 0
+                acc_loss = torch.zeros((), device=device)
+                acc_correct = torch.zeros((), device=device)
+                acc_count = 0
+                ep_loss, ep_correct, ep_count = 0.0, 0, 0
+            for b in range(first_batch, steps_per_epoch):
                 if job.stopping:
+                    if b > 0:
+                        # Paused mid-epoch: save exactly where we are so resuming loses nothing.
+                        torch.save(checkpoint(epoch, {
+                            "batch": b, "perm": perm, "acc_loss": acc_loss.item(), "acc_correct": acc_correct.item(),
+                            "acc_count": acc_count, "ep_loss": ep_loss, "ep_correct": ep_correct, "ep_count": ep_count,
+                        }), runs.checkpoint_path(run_id, "last"))
+                        runs.save_metrics(run_id, history)
+                    run["summary"].update({
+                        "steps": global_step, "paused_at": epoch + b / steps_per_epoch,
+                        "duration": prev_duration + time.time() - started,
+                    })
+                    runs.save(run)
                     raise Stopped()
                 idx = perm[b * bs : (b + 1) * bs]
                 x = data.prepare(train_x[idx], device, augment=augment, gen=aug_gen)
@@ -272,7 +305,7 @@ def train_run(
                 if global_step % log_every == 0 or b == steps_per_epoch - 1:
                     lsum, csum = acc_loss.item(), acc_correct.item()
                     if not math.isfinite(lsum):
-                        raise FloatingPointError("Loss became NaN/inf — try a lower learning rate or gradient clipping.")
+                        raise FloatingPointError("Loss became NaN/inf: try a lower learning rate or gradient clipping.")
                     point = {
                         "step": global_step, "epoch": epoch + (b + 1) / steps_per_epoch,
                         "loss": lsum / acc_count, "acc": csum / acc_count, "lr": opt.param_groups[0]["lr"],
@@ -301,12 +334,7 @@ def train_run(
             improved = val["acc"] > best["val_acc"] or (val["acc"] == best["val_acc"] and val["loss"] < best["val_loss"])
             if improved:
                 best = {"val_acc": val["acc"], "val_loss": val["loss"], "epoch": epoch + 1}
-            ckpt = {
-                "model": net.state_dict(), "optimizer": opt.state_dict(), "scheduler": sched.state_dict(),
-                "epoch": epoch + 1, "global_step": global_step, "best": best,
-                "rng": rng.state(), "data_gen": data_gen.get_state(), "aug_gen": aug_gen.get_state(),
-            }
-            torch.save(ckpt, runs.checkpoint_path(run_id, "last"))
+            torch.save(checkpoint(epoch + 1), runs.checkpoint_path(run_id, "last"))
             if improved:
                 torch.save({"model": net.state_dict(), "epoch": epoch + 1, "val": val}, runs.checkpoint_path(run_id, "best"))
             runs.save_metrics(run_id, history)
@@ -350,6 +378,22 @@ def train_run(
         run["error"] = f"{type(e).__name__}: {e}"
         runs.save(run)
         raise
+
+
+def release_memory():
+    """Hand cached accelerator memory back to the system once a job has finished.
+
+    GPU allocators keep freed memory in a per-process cache; on machines where
+    the GPU shares RAM with everything else (Apple Silicon) that starves the
+    rest of the system if it is never emptied.
+    """
+    import gc
+
+    gc.collect()
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _check_reproduction(run: dict):

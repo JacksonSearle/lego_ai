@@ -128,8 +128,11 @@ def _prepare_config(raw: dict) -> dict:
 
 
 def _start_training(run_id: str, *, resume=False) -> jobs.Job:
-    busy = [j for j in jobs.active("train") if j.meta.get("run_id") == run_id]
-    if busy:
+    busy = [j for j in jobs.active() if j.meta.get("run_id") == run_id]
+    for j in busy:
+        # A run that was just paused needs a moment to save its checkpoint and wind down.
+        if j.stopping and j.done_event.wait(timeout=30):
+            continue
         raise ValueError("This run is already training.")
     return jobs.start("train", lambda job: train_run(job, run_id, resume=resume), meta={"run_id": run_id})
 
@@ -147,14 +150,18 @@ def train(body: dict = Body(...)):
 
 @app.post("/api/runs/{run_id}/resume")
 def resume(run_id: str, body: dict = Body(default={})):
+    # If the run was paused a moment ago, let it finish saving before reading its state.
+    for j in jobs.active():
+        if j.meta.get("run_id") == run_id and j.stopping:
+            j.done_event.wait(timeout=30)
     try:
         run = runs.get(run_id)
     except KeyError as e:
         _bad(e, 404)
     if not runs.checkpoint_path(run_id).exists():
-        _bad(ValueError("This run has no checkpoint to resume from."))
+        _bad(ValueError("This run was stopped before its first training step, so there is nothing to resume. Train it again instead."))
     epochs = int(body.get("epochs") or run["config"]["training"]["epochs"])
-    done = run["summary"].get("epochs_done", 0)
+    done = run["summary"].get("epochs_done") or 0
     if epochs <= done:
         _bad(ValueError(f"Run already has {done} epochs; choose a larger total."))
     run["config"]["training"]["epochs"] = epochs

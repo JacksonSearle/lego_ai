@@ -8,7 +8,7 @@ import { LESSONS } from './lessons'
 // Top bar: avatar, level, XP
 // ---------------------------------------------------------------------------
 export function ProfileBar() {
-  const { progress, access, ready } = useLearn()
+  const { progress, access, ready, setGuideView } = useLearn()
   const { setTab } = useStore()
   const [open, setOpen] = useState(false)
   if (!ready || !progress.mode) return null
@@ -22,7 +22,7 @@ export function ProfileBar() {
         {access.unlocked ? (
           <span className="pill accent" title="Everything is unlocked">🔓 All unlocked</span>
         ) : (
-          <div className="xp" title={`${progress.xp} XP${next ? ` — ${next.xp - progress.xp} to level ${next.level}` : ''}`}>
+          <div className="xp" title={`${progress.xp} XP${next ? `, ${next.xp - progress.xp} to level ${next.level}` : ''}`}>
             <div className="row" style={{ gap: 6 }}>
               <span className="lvl">Lv {lvl.level}</span>
               <span className="small">{lvl.title}</span>
@@ -33,7 +33,7 @@ export function ProfileBar() {
           </div>
         )}
         {!access.unlocked && access.skillPoints > 0 && (
-          <button className="pill accent sp-btn" onClick={() => { sessionStorage.setItem('lego-ai/guide-view', 'skills'); setTab('guide') }} title="Spend skill points in the Skill Tree">⭐ {access.skillPoints}</button>
+          <button className="pill accent sp-btn" onClick={() => { setGuideView('skills'); setTab('guide') }} title="Spend skill points in the Skill Tree">⭐ {access.skillPoints}</button>
         )}
       </div>
       {open && <ProfileModal onClose={() => setOpen(false)} />}
@@ -75,7 +75,7 @@ function ProfileModal({ onClose }: { onClose: () => void }) {
             <div className="kpi"><div className="k">Runs</div><div className="v">{s.runs}</div></div>
             <div className="kpi"><div className="k">Lessons</div><div className="v">{s.lessons.length}/{LESSONS.length}</div></div>
             <div className="kpi"><div className="k">Badges</div><div className="v">{Object.keys(progress.achievements).length}</div></div>
-            <div className="kpi"><div className="k">Best MNIST</div><div className="v">{s.best.mnist ? `${(s.best.mnist * 100).toFixed(1)}%` : '—'}</div></div>
+            <div className="kpi"><div className="k">Best MNIST</div><div className="v">{s.best.mnist ? `${(s.best.mnist * 100).toFixed(1)}%` : '-'}</div></div>
           </div>
           <div className="card col" style={{ gap: 8 }}>
             <h4>Learning mode</h4>
@@ -110,8 +110,9 @@ export function Rewards() {
   const { rewards, dismissReward } = useLearn()
   return (
     <div className="rewards">
+      {rewards.length > 2 && <button className="sm reward-clear" onClick={() => rewards.forEach((r) => dismissReward(r.key))}>Dismiss all ✕</button>}
       {rewards.map((r) => (
-        <div key={r.key} className={`reward ${r.kind}`} onClick={() => dismissReward(r.key)}>
+        <div key={r.key} className={`reward ${r.kind}`}>
           {r.kind === 'achievement' ? (
             <>
               <div className="reward-icon">{r.icon}</div>
@@ -125,6 +126,7 @@ export function Rewards() {
             <span className="grow small">{r.kind === 'quest' ? `✅ Quest complete: ${r.title}` : r.title}</span>
           )}
           {r.xp > 0 && <span className="xp-gain">+{r.xp} XP</span>}
+          <button className="ghost sm reward-x" title="Dismiss" onClick={() => dismissReward(r.key)}>✕</button>
         </div>
       ))}
     </div>
@@ -132,7 +134,7 @@ export function Rewards() {
 }
 
 export function LevelUpModal() {
-  const { levelUp, closeLevelUp, openLesson } = useLearn()
+  const { levelUp, closeLevelUp, openLesson, access } = useLearn()
   const { setTab } = useStore()
   if (!levelUp || !levelUp.level) return null
   const L = LEVELS.find((l) => l.level === levelUp.level)!
@@ -154,7 +156,7 @@ export function LevelUpModal() {
               <ul className="unlock-list">{L.news.map((n) => <li key={n}>{n}</li>)}</ul>
             </div>
           )}
-          {L.level >= 6 && <div className="note-box">⭐ +2 skill points to spend in the Skill Tree.</div>}
+          {L.level >= 6 && access.skillPoints > 0 && <div className="note-box">⭐ You have {access.skillPoints} skill point{access.skillPoints === 1 ? '' : 's'} to spend in the Skill Tree.</div>}
           {avatar && <div className="small">New avatar: <span style={{ fontSize: 22 }}>{avatar.icon}</span> {avatar.name}</div>}
           {lessons.length > 0 && (
             <div className="row wrap">
@@ -210,7 +212,7 @@ export function Spotlight() {
 // Tutor: the quest checklist for the current level
 // ---------------------------------------------------------------------------
 export function Tutor() {
-  const { progress, access, openLesson, setSpot, ready } = useLearn()
+  const { progress, access, openLesson, setSpot, ready, setGuideView } = useLearn()
   const { setTab } = useStore()
   const [open, setOpen] = useState(() => localStorage.getItem('lego-ai/tutor-open') !== '0')
   const [showOld, setShowOld] = useState(false)
@@ -221,8 +223,12 @@ export function Tutor() {
   const backlog = QUESTS.filter((q) => q.level < level && !progress.quests.includes(q.id))
   const done = quests.filter((q) => progress.quests.includes(q.id)).length
   const next = LEVELS.find((l) => l.level === level + 1)
+  // Once every quest in the game is finished there is nothing left to show: go away for good.
+  const anyLeft = QUESTS.some((q) => !progress.quests.includes(q.id))
+  if (!anyLeft) return null
   const show = (q: Quest) => {
     if (q.go?.lesson) openLesson(q.go.lesson)
+    if (q.go?.spot === 'skilltree') setGuideView('skills')
     if (q.go?.tab) setTab(q.go.tab)
     if (q.go?.spot) setTimeout(() => setSpot({ id: q.go!.spot!, text: q.how }), 150)
   }
@@ -265,7 +271,7 @@ export function Tutor() {
             <div className="tiny muted tutor-next">
               <b>Level {next.level}</b> ({next.xp - progress.xp} XP to go): {next.news[0] ?? 'new avatar'}
             </div>
-          ) : level >= MAX_LEVEL && <div className="tiny muted tutor-next">Max level — legend!</div>}
+          ) : level >= MAX_LEVEL && <div className="tiny muted tutor-next">Max level. Legend!</div>}
         </div>
       )}
     </div>
@@ -298,7 +304,7 @@ export function Onboarding() {
               <button className="mode-card" onClick={() => { chooseMode('unlocked'); setTab('build'); setOverviewOpen(true) }}>
                 <div style={{ fontSize: 40 }}>🔓</div>
                 <h2>Unlock everything</h2>
-                <p className="small muted">I know my way around neural networks. Give me every block, setting and page now — plus a 1-minute tour and the guidebook.</p>
+                <p className="small muted">I know my way around neural networks. Give me every block, setting and page now, plus a 1-minute tour and the guidebook.</p>
                 <span className="pill">Expert mode</span>
               </button>
             </div>
@@ -317,7 +323,7 @@ export function Onboarding() {
             <div className="row">
               <button className="ghost" onClick={() => setStep(0)}>← Back</button>
               <span className="spacer" />
-              <button className="primary big" onClick={() => { chooseMode('guided'); setTab('lab'); openLesson('start.mnist') }}>First up: meet MNIST →</button>
+              <button className="primary big" onClick={() => { chooseMode('guided'); setTab('lab'); openLesson('start.welcome') }}>Open the guidebook →</button>
             </div>
           </div>
         )}
@@ -330,7 +336,7 @@ export function Onboarding() {
 // Expert-mode quick tour
 // ---------------------------------------------------------------------------
 const TOUR = [
-  { tab: 'build', spot: 'palette', title: 'Block palette', text: 'Every block, grouped by kind and colour. Filter by task (image / text). Drag onto the stack or click to add. Custom Python blocks appear here too.' },
+  { tab: 'build', spot: 'palette', title: 'Block palette', text: 'Every block, grouped by kind and color. Filter by task (image / text). Drag onto the stack or click to add. Custom Python blocks appear here too.' },
   { tab: 'build', spot: 'stack', title: 'The stack', text: 'Data flows up from the input (bottom) to the output (top). Shapes are inferred and shown on the arrows. Drag to reorder, click to edit, drop on the bin to delete.' },
   { tab: 'build', spot: 'templates', title: 'Templates & JSON', text: 'Start from a proven architecture for each dataset, or import/export reproducible .lego.json configs.' },
   { tab: 'train', spot: 'hyperparams', title: 'Training', text: 'All hyperparameters, a batch-size memory checker, resume from checkpoints, and live loss/accuracy charts.' },
@@ -338,7 +344,7 @@ const TOUR = [
   { tab: 'leaderboard', spot: 'leaderboard', title: 'Leaderboard', text: 'Rank runs, inspect curves and configs, retrain from scratch (bit-exact reproduction check), resume, download weights.' },
   { tab: 'custom', spot: 'custom-new', title: 'Custom blocks', text: 'Write nn.Modules with @lego_block and they join the palette. Their source is embedded in run configs.' },
   { tab: 'history', spot: 'timeline', title: 'History of AI', text: 'A self-running tour of 12 landmark architectures on MNIST, with papers.' },
-  { tab: 'guide', spot: 'guide-nav', title: 'Guidebook', text: 'Lessons for every page, action and block — animations, annotated PyTorch code, papers. Each page’s “?” button jumps to its guide.' },
+  { tab: 'guide', spot: 'guide-nav', title: 'Guidebook', text: 'Lessons for every page, action and block: animations, annotated PyTorch code, papers. Each page’s “?” button jumps to its guide.' },
 ]
 
 export function OverviewTour() {

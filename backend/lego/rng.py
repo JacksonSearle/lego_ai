@@ -1,8 +1,8 @@
 """Per-job random streams.
 
 PyTorch's global RNG (used by weight init and dropout) is shared by every
-thread. To keep each training run bit-for-bit reproducible while other jobs —
-or the builder's shape inspection — run alongside it, every job owns an
+thread. To keep each training run bit-for-bit reproducible while other jobs (or
+the builder's shape inspection) run alongside it, every job owns an
 ``RngStream``. Entering the stream takes a global lock, installs the job's RNG
 state, and on exit saves the advanced state and restores nothing else: anyone
 else touching the global RNG must also go through ``RNG_LOCK``.

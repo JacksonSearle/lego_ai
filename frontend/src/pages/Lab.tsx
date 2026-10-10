@@ -11,9 +11,9 @@ import { fmtDur, fmtNum, fmtPct, MEDALS } from '../util'
 export const WIDTHS = [
   { id: 'too_small', label: 'Too small', n: 2, emoji: '🐜', note: 'Only 2 neurons: every digit has to be squeezed through just 2 numbers. That isn’t enough room to tell 10 digits apart, so many get mixed up.' },
   { id: 'small', label: 'Small', n: 16, emoji: '🐭', note: '16 neurons already capture the main strokes of each digit. Not bad for such a tiny model!' },
-  { id: 'medium', label: 'Medium', n: 64, emoji: '🐕', note: '64 neurons: a sweet spot — fast to train and quite accurate.' },
+  { id: 'medium', label: 'Medium', n: 64, emoji: '🐕', note: '64 neurons: a sweet spot, fast to train and quite accurate.' },
   { id: 'big', label: 'Big', n: 512, emoji: '🐘', note: '512 neurons: more room to learn subtle shapes, a bit more accurate, but 8× the weights of Medium.' },
-  { id: 'too_big', label: 'Too big', n: 4096, emoji: '🐳', note: '4,096 neurons and 3.2 million weights. Slower, and barely better than Big — and with longer training such a model can start memorising instead of learning (overfitting). Bigger isn’t always better.' },
+  { id: 'too_big', label: 'Too big', n: 4096, emoji: '🐳', note: '4,096 neurons and 3.2 million weights. Slower, and barely better than Big, and with longer training such a model can start memorizing instead of learning (overfitting). Bigger isn’t always better.' },
 ]
 
 const labBlocks = (n: number, layers: number): BlockInst[] => [
@@ -85,7 +85,7 @@ export function Lab() {
           <div className="tiny muted" style={{ fontWeight: 700, letterSpacing: '0.08em' }}>LAB 1</div>
           <h1>Teach a computer to read handwriting</h1>
           <p className="muted" style={{ margin: '6px 0 0', maxWidth: 680 }}>
-            Your model will look at 55,000 handwritten digits and learn to tell which digit each one is. Pick how big its “brain” (the hidden layer) should be — training starts straight away.
+            Your model will look at 55,000 handwritten digits and learn to tell which digit each one is. Pick how big its “brain” (the hidden layer) should be. Training starts straight away.
           </p>
         </div>
         <div className="row wrap">
@@ -126,7 +126,7 @@ export function Lab() {
                     {[1, 2, 3, 4].map((n) => <button key={n} className={layers === n ? 'on' : ''} onClick={() => { setLayers(n); if (width) train(width, n) }}>{n}</button>)}
                   </div>
                   {w && <div className={`tiny ${weights > 10e6 ? 'warn' : 'muted'}`} style={{ marginTop: 6 }}>
-                    ≈ {fmtNum(weights)} weights{weights > 10e6 ? ' — that’s huge! Expect a few minutes of training on a CPU.' : ''}
+                    ≈ {fmtNum(weights)} weights{weights > 10e6 ? ': that’s huge! Expect a few minutes of training on a CPU.' : ''}
                   </div>}
                 </div>
               ) : <div className="tiny faint" style={{ marginTop: 10 }}>🔒 Level 2: stack more than one hidden layer</div>}
@@ -161,7 +161,7 @@ export function Lab() {
                       <div className="lab-acc" style={{ color: acc == null ? 'var(--muted)' : acc > 0.95 ? 'var(--green)' : acc > 0.85 ? 'var(--accent)' : 'var(--orange)' }}>
                         {acc == null ? '…' : fmtPct(acc, 1)}
                       </div>
-                      <div className="small muted">{lastEp ? 'of digits it had never seen were read correctly' : running ? 'correct on the digits it’s practising on' : ''}</div>
+                      <div className="small muted">{lastEp ? 'of digits it had never seen were read correctly' : running ? 'correct on the digits it’s practicing on' : ''}</div>
                     </div>
                     <div className="right small muted">
                       <div>{session.name}</div>

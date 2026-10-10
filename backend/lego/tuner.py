@@ -100,7 +100,7 @@ def run_study(job: Job, base_config: dict, opts: dict):
             except Stopped:
                 study.tell(trial, state=optuna.trial.TrialState.FAIL)
                 raise
-            except Exception as e:  # noqa: BLE001 — a bad trial (e.g. NaN loss) shouldn't kill the study
+            except Exception as e:  # noqa: BLE001 - a bad trial (e.g. NaN loss) shouldn't kill the study
                 state = "failed"
                 study.tell(trial, state=optuna.trial.TrialState.FAIL)
                 job.emit({"type": "trial_error", "trial": i + 1, "message": str(e)})

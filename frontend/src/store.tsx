@@ -44,6 +44,9 @@ export interface Session {
   params: number | null
   epochs: number | null
   totalSteps: number | null
+  /** How many training examples the run uses (after any subset), and the step it (re)started at. */
+  trainExamples: number | null
+  baseStep: number
   device: string | null
   steps: StepPoint[]
   epochPts: EpochPoint[]
@@ -107,7 +110,7 @@ function loadDraft(): Draft | null {
 
 function emptySession(jobId: string, kind: 'train' | 'tune', name: string, runId: string | null): Session {
   return {
-    jobId, kind, name, runId, status: 'running', message: 'Starting…', params: null, epochs: null, totalSteps: null, device: null,
+    jobId, kind, name, runId, status: 'running', message: 'Starting…', params: null, epochs: null, totalSteps: null, trainExamples: null, baseStep: 0, device: null,
     steps: [], epochPts: [], summary: null, error: null, trials: [], currentTrial: null, best: null, startedAt: Date.now(),
   }
 }
@@ -122,6 +125,8 @@ function reduce(s: Session, e: JobEvent): Session {
       return {
         ...s, runId: (e.run_id as string) ?? s.runId, params: e.params as number, epochs: e.epochs as number,
         totalSteps: e.total_steps as number, device: e.device as string, message: 'Training…',
+        trainExamples: (e.train_examples as number) ?? null,
+        baseStep: hist?.steps.length ? hist.steps[hist.steps.length - 1].step : 0,
         steps: hist?.steps ?? [], epochPts: hist?.epochs ?? [], summary: null,
       }
     }
@@ -130,7 +135,7 @@ function reduce(s: Session, e: JobEvent): Session {
     case 'epoch':
       return { ...s, epochPts: [...s.epochPts, e as unknown as EpochPoint] }
     case 'done':
-      return s.kind === 'tune' ? s : { ...s, summary: e.summary as Summary, status: e.status as string, message: `Run ${e.status}` }
+      return s.kind === 'tune' ? s : { ...s, summary: e.summary as Summary, status: e.status as string, message: e.status === 'stopped' ? 'Paused' : `Run ${e.status}` }
     case 'error':
       return { ...s, error: e.message as string }
     case 'study_start':
@@ -145,7 +150,7 @@ function reduce(s: Session, e: JobEvent): Session {
       return { ...s, trials: [...s.trials.filter((t) => t.trial !== row.trial), row], best: row.best }
     }
     case 'job_end':
-      return { ...s, status: e.status as string, error: (e.error as string) ?? s.error, message: `Job ${e.status}` }
+      return { ...s, status: e.status as string, error: (e.error as string) ?? s.error, message: s.kind === 'train' && e.status === 'stopped' ? 'Paused' : `Job ${e.status}` }
     default:
       return s
   }

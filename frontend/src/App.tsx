@@ -54,7 +54,7 @@ function Shell() {
       setDraft((d) => ({ ...d, name: 'Repaired model' }), { undoable: false })
       flag('fixedShapes')
       setSpot(null)
-      toast('🧩 Fixed! Every block fits and the output is 10 numbers — one per digit. Now train it!', 'ok')
+      toast('🧩 Fixed! Every block fits and the output is 10 numbers, one per digit. Now train it!', 'ok')
     }
   }, [progress.challenge, draft.origin, draft.blocks, inspect, update, flag, setSpot, toast, setDraft])
 
@@ -99,7 +99,7 @@ function Shell() {
       </header>
       {offline && (
         <div className="offline-banner">
-          ⚠️ Can’t reach the Lego AI server, so shape checks and training are paused. Start it with <code>./run.sh</code> in the project folder — this page reconnects automatically.
+          ⚠️ Can’t reach the Lego AI server, so shape checks and training are paused. Start it with <code>./run.sh</code> in the project folder: this page reconnects automatically.
         </div>
       )}
       <main className="main">

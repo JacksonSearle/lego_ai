@@ -330,7 +330,7 @@ def _recurrent_params(default_hidden=128):
     return [
         Param("hidden", "int", default_hidden, "Hidden size", "Size of the recurrent state.", min=1),
         Param("layers", "int", 1, "Stacked layers", "Number of recurrent layers stacked inside this block.", min=1, max=8),
-        Param("bidirectional", "bool", False, "Bidirectional", "Also read the sequence backwards and concatenate. Not allowed for language modelling (it would see the future)."),
+        Param("bidirectional", "bool", False, "Bidirectional", "Also read the sequence backwards and concatenate. Not allowed for language modeling (it would see the future)."),
         Param("return_sequences", "bool", True, "Return sequence", "Output every time step (T×H). Turn off to output only the final state (H)."),
         Param("dropout", "float", 0.0, "Dropout", "Dropout between stacked layers (only when layers > 1).", min=0, max=0.9, step=0.05),
     ]
@@ -339,7 +339,7 @@ def _recurrent_params(default_hidden=128):
 def _build_recurrent(kind, label, in_shape, ctx, hidden, layers, bidirectional, return_sequences, dropout, **kw):
     _need_sequence(in_shape, label)
     if bidirectional and ctx.task == "lm":
-        raise ShapeError("Bidirectional recurrent layers would see future characters in language modelling.")
+        raise ShapeError("Bidirectional recurrent layers would see future characters in language modeling.")
     return Recurrent(kind, in_shape[-1], hidden, layers, bidirectional, return_sequences, dropout, **kw)
 
 
@@ -535,7 +535,7 @@ class TransformerBlock(nn.Module):
         Param("heads", "int", 4, "Attention heads", "Number of parallel attention heads. Must divide the model width.", min=1, max=32),
         Param("ff_mult", "int", 4, "FF expansion", "Feed-forward hidden size as a multiple of the model width.", min=1, max=8),
         Param("dropout", "float", 0.1, "Dropout", "Dropout on attention and feed-forward outputs.", min=0, max=0.9, step=0.05),
-        Param("causal", "choice", "auto", "Causal mask", "Prevent each position from attending to later ones. 'auto' = on for language modelling.", choices=["auto", "yes", "no"]),
+        Param("causal", "choice", "auto", "Causal mask", "Prevent each position from attending to later ones. 'auto' = on for language modeling.", choices=["auto", "yes", "no"]),
         Param("activation", "activation", "gelu", "Activation", "Non-linearity in the feed-forward layer."),
         Param("norm_first", "bool", True, "Pre-norm", "Apply LayerNorm before each sub-layer (more stable) instead of after (original 2017 design)."),
     ],
@@ -575,7 +575,7 @@ class SelfAttention(nn.Module):
     params=[
         Param("heads", "int", 4, "Attention heads", "Number of parallel heads. Must divide the model width.", min=1, max=32),
         Param("dropout", "float", 0.0, "Dropout", "Dropout on attention weights.", min=0, max=0.9, step=0.05),
-        Param("causal", "choice", "auto", "Causal mask", "'auto' = on for language modelling.", choices=["auto", "yes", "no"]),
+        Param("causal", "choice", "auto", "Causal mask", "'auto' = on for language modeling.", choices=["auto", "yes", "no"]),
     ],
     paper="https://arxiv.org/abs/1409.0473",
 )
@@ -617,7 +617,7 @@ class MixerBlock(nn.Module):
 def build_mixer(in_shape, ctx, token_hidden, channel_hidden, activation, dropout):
     _need_sequence(in_shape, "MLP-Mixer Block")
     if ctx.task == "lm":
-        raise ShapeError("MLP-Mixer mixes across all positions, so it would see future characters in language modelling.")
+        raise ShapeError("MLP-Mixer mixes across all positions, so it would see future characters in language modeling.")
     return MixerBlock(in_shape[0], in_shape[1], token_hidden, channel_hidden, activation, dropout)
 
 
@@ -638,7 +638,7 @@ class SeqBatchNorm(nn.Module):
     "Batch Norm",
     category="Normalization",
     color="#14b8a6",
-    description="Normalizes each feature/channel using batch statistics, then rescales. Speeds up and stabilises training.",
+    description="Normalizes each feature/channel using batch statistics, then rescales. Speeds up and stabilizes training.",
     paper="https://arxiv.org/abs/1502.03167",
 )
 def build_batchnorm(in_shape):

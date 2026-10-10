@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { ArchView, Chips } from '../components/ArchView'
 import { LiveCharts } from '../components/LiveCharts'
+import { NumInput } from '../components/NumInput'
 import { GuideButton } from '../learn/GuideButton'
 import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
@@ -21,8 +22,13 @@ const SORTS: { key: SortKey; label: string; desc: boolean }[] = [
 export function Leaderboard() {
   const { blocks: specs, datasets } = useStore()
   const [rows, setRows] = useState<RunRow[]>([])
-  const [ds, setDs] = useState<string>('all')
-  const [sort, setSort] = useState<SortKey>('best_val_acc')
+  // Remember the dataset tab and sort order between visits.
+  const [ds, setDs] = useState<string>(() => localStorage.getItem('lego-ai/lb-dataset') ?? 'all')
+  const [sort, setSort] = useState<SortKey>(() => (localStorage.getItem('lego-ai/lb-sort') as SortKey) ?? 'best_val_acc')
+  useEffect(() => {
+    localStorage.setItem('lego-ai/lb-dataset', ds)
+    localStorage.setItem('lego-ai/lb-sort', sort)
+  }, [ds, sort])
   const [showTrials, setShowTrials] = useState(false)
   const [showFailed, setShowFailed] = useState(false)
   const [q, setQ] = useState('')
@@ -82,7 +88,7 @@ export function Leaderboard() {
       <div className={`lb-layout ${selected ? 'with-detail' : ''}`}>
         <div className="panel" style={{ overflow: 'auto' }} data-tour="leaderboard">
           {filtered.length === 0 ? (
-            <div className="empty" style={{ margin: 20 }}>No runs yet. Build a model and train it — it will show up here.</div>
+            <div className="empty" style={{ margin: 20 }}>No runs yet. Build a model and train it, and it will show up here.</div>
           ) : (
             <table className="tbl">
               <thead>
@@ -153,7 +159,10 @@ function RunDetailPanel({ id, onClose, onChanged }: { id: string; onClose: () =>
     api.run(id).then((r) => {
       setRun(r)
       setName(r.name)
-      setEpochs((r.summary.epochs_done ?? 0) + Math.max(1, Math.ceil((r.config.training.epochs as number) / 2)))
+      // A paused run resumes to its own target; a finished one gets some extra epochs by default.
+      const target = r.config.training.epochs as number
+      const done = r.summary.epochs_done ?? 0
+      setEpochs(done < target ? target : done + Math.max(1, Math.ceil(target / 2)))
     })
   }, [id])
 
@@ -181,6 +190,7 @@ function RunDetailPanel({ id, onClose, onChanged }: { id: string; onClose: () =>
       <div className="panel-body col" style={{ gap: 14 }}>
         <div className="row wrap small muted">
           <span className={`pill ${run.status === 'completed' ? 'ok' : run.status === 'running' ? 'accent' : 'warn'}`}>{run.status}</span>
+          {run.status === 'stopped' && s.paused_at != null && <span>paused at epoch {s.paused_at.toFixed(2)}</span>}
           <span>{ds?.name}</span>·<span className="mono">{run.id}</span>
         </div>
         {run.error && <div className="error-box">{run.error}</div>}
@@ -212,7 +222,7 @@ function RunDetailPanel({ id, onClose, onChanged }: { id: string; onClose: () =>
               Resume from checkpoint
             </button>
             <span className="small muted">continue to</span>
-            <input type="number" style={{ width: 70 }} value={epochs} min={(s.epochs_done ?? 0) + 1} onChange={(e) => setEpochs(parseInt(e.target.value, 10))} />
+            <NumInput int style={{ width: 70 }} value={epochs} min={(s.epochs_done ?? 0) + 1} emptyValue={epochs} onChange={(n) => setEpochs(n ?? epochs)} />
             <span className="small muted">epochs (has {s.epochs_done ?? 0})</span>
           </div>
         )}
@@ -231,7 +241,7 @@ function RunDetailPanel({ id, onClose, onChanged }: { id: string; onClose: () =>
                 {Object.entries(run.config.training).filter(([, v]) => v !== null).map(([k, v]) => (
                   <tr key={k}><td className="muted">{k}</td><td className="mono">{String(v)}</td></tr>
                 ))}
-                {run.config.dataset.train_subset && <tr><td className="muted">train_subset</td><td className="mono">{run.config.dataset.train_subset}</td></tr>}
+                {s.train_examples != null && <tr><td className="muted">training examples</td><td className="mono">{s.train_examples.toLocaleString()}{run.config.dataset.train_subset ? ' (subset)' : ''}</td></tr>}
               </tbody>
             </table>
           </div>

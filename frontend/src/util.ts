@@ -1,19 +1,19 @@
 import type { BlockInst, BlockSpec, DatasetInfo } from './types'
 
-export const fmtShape = (s: number[] | null | undefined) => (s && s.length ? s.join('×') : '—')
+export const fmtShape = (s: number[] | null | undefined) => (s && s.length ? s.join('×') : '-')
 
 export function fmtNum(n: number | null | undefined) {
-  if (n == null) return '—'
+  if (n == null) return '-'
   if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}M`
   if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k`
   return String(n)
 }
 
-export const fmtPct = (x: number | null | undefined, d = 2) => (x == null || x < 0 ? '—' : `${(x * 100).toFixed(d)}%`)
-export const fmtLoss = (x: number | null | undefined) => (x == null ? '—' : x.toFixed(4))
+export const fmtPct = (x: number | null | undefined, d = 2) => (x == null || x < 0 ? '-' : `${(x * 100).toFixed(d)}%`)
+export const fmtLoss = (x: number | null | undefined) => (x == null ? '-' : x.toFixed(4))
 
 export function fmtDur(s: number | null | undefined) {
-  if (s == null) return '—'
+  if (s == null) return '-'
   if (s < 60) return `${s.toFixed(s < 10 ? 1 : 0)}s`
   if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`
   return `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`
@@ -27,7 +27,7 @@ export function fmtAgo(t: number) {
   return new Date(t * 1000).toLocaleDateString()
 }
 
-/** 'light' when the colour is bright enough to need dark text. */
+/** 'light' when the color is bright enough to need dark text. */
 export function tone(hex: string): 'light' | 'dark' {
   const h = hex.replace('#', '')
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
@@ -64,7 +64,7 @@ export function paramSummary(spec: BlockSpec | undefined, params: Record<string,
 
 export function describeInput(ds: DatasetInfo | undefined) {
   if (!ds) return ''
-  if (ds.input_kind === 'image') return `${ds.input_shape[0] === 1 ? 'grayscale' : 'colour'} image`
+  if (ds.input_kind === 'image') return `${ds.input_shape[0] === 1 ? 'grayscale' : 'color'} image`
   if (ds.input_kind === 'tokens') return `${ds.seq_len} token ids (vocab ${ds.vocab_size})`
   return `${ds.input_shape[0]} features`
 }

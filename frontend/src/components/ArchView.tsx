@@ -32,7 +32,7 @@ export function ArchView({ blocks, specs, dataset, width = 280 }: {
   )
 }
 
-/** Tiny coloured preview of an architecture. */
+/** Tiny colored preview of an architecture. */
 export function MiniStack({ blocks, specs, width = 120 }: { blocks: BlockInst[]; specs: Record<string, BlockSpec>; width?: number }) {
   return (
     <div className="mini-stack" style={{ width }}>
@@ -45,7 +45,7 @@ export function MiniStack({ blocks, specs, width = 120 }: { blocks: BlockInst[];
   )
 }
 
-/** Inline row of colour chips, one per block. */
+/** Inline row of color chips, one per block. */
 export function Chips({ types, specs }: { types: string[]; specs: Record<string, BlockSpec> }) {
   return (
     <div className="chips">

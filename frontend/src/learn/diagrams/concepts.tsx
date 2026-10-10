@@ -27,7 +27,7 @@ export function NeuralNet() {
   }
   const lit = (l: number) => clamp((p - l * 0.45) * 4)
   return (
-    <Frame caption="Each circle is a neuron. Each line is a weight — a number the network learns. Signals flow left to right: pixels in, an answer out.">
+    <Frame caption="Each circle is a neuron. Each line is a weight, a number the network learns. Signals flow left to right: pixels in, an answer out.">
       <Svg>
         {edges}
         {pulses}
@@ -67,7 +67,7 @@ export function MnistPeek() {
   const row = Math.floor(p * 28)
   const cell = 6.5
   return (
-    <Frame caption={<>Left: real MNIST digits with their labels. Right: what the computer actually sees — a 28×28 grid of brightness numbers from 0 (black) to 255 (white). That is 28 × 28 = <b>784 numbers</b> per image.</>}>
+    <Frame caption={<>Left: real MNIST digits with their labels. Right: what the computer actually sees, a 28×28 grid of brightness numbers from 0 (black) to 255 (white). That is 28 × 28 = <b>784 numbers</b> per image.</>}>
       <div className="row" style={{ gap: 20, alignItems: 'flex-start', flexWrap: 'wrap', justifyContent: 'center' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 52px)', gap: 8 }}>
           {samples.map((s, i) => (
@@ -170,8 +170,8 @@ export function Depth() {
 // Tensor shapes: blocks only fit when the shapes match
 // ---------------------------------------------------------------------------
 const SHAPE_STEPS = [
-  { title: 'An image is a 28×28 grid', text: 'The input tensor has shape 1×28×28: one colour channel, 28 rows, 28 columns.' },
-  { title: 'Linear expects a flat list', text: 'A Linear layer multiplies a list of numbers by a weight matrix. It wants shape 784, not a 28×28 grid — the bricks don’t fit.' },
+  { title: 'An image is a 28×28 grid', text: 'The input tensor has shape 1×28×28: one color channel, 28 rows, 28 columns.' },
+  { title: 'Linear expects a flat list', text: 'A Linear layer multiplies a list of numbers by a weight matrix. It wants shape 784, not a 28×28 grid: the bricks don’t fit.' },
   { title: 'Flatten unrolls the grid', text: 'Flatten lays the 28 rows end-to-end: 1×28×28 → 784. Same numbers, new shape.' },
   { title: 'Now it fits', text: 'Linear(784 → 128) sits on the 784 strip and outputs 128 numbers. Every block’s output shape must match the next block’s input shape.' },
 ]
@@ -232,7 +232,7 @@ export function MatMul() {
   return (
     <Frame
       controls={<Choice options={[{ id: 'ok', label: 'Matching' }, { id: 'bad', label: 'Mismatched' }]} value={mode} onChange={setMode} />}
-      caption="Inside a Linear layer, a batch of inputs (batch × 784) is multiplied by a weight matrix (784 × 128). The two inner numbers must be equal — each input number needs exactly one row of weights. If they differ, PyTorch raises a shape error."
+      caption="Inside a Linear layer, a batch of inputs (batch × 784) is multiplied by a weight matrix (784 × 128). The two inner numbers must be equal: each input number needs exactly one row of weights. If they differ, PyTorch raises a shape error."
     >
       <Svg h={200}>
         {box(30, 50, 110, '#3b82f6')}
@@ -247,7 +247,7 @@ export function MatMul() {
         <Label x={272} y={116} size={20} color={C.text}>=</Label>
         {ok ? box(295, 80, 110, '#22c55e') : <Label x={335} y={118} size={28} color={C.red} weight={800}>✗</Label>}
         {ok && <><Label x={335} y={48}>128</Label><Label x={335} y={175}>batch</Label></>}
-        <Label x={200} y={196} color={ok ? C.green : C.red} weight={600}>{ok ? '(batch × 784) · (784 × 128) → (batch × 128)' : '784 ≠ 100 — “mat1 and mat2 shapes cannot be multiplied”'}</Label>
+        <Label x={200} y={196} color={ok ? C.green : C.red} weight={600}>{ok ? '(batch × 784) · (784 × 128) → (batch × 128)' : '784 ≠ 100: “mat1 and mat2 shapes cannot be multiplied”'}</Label>
       </Svg>
     </Frame>
   )
@@ -264,17 +264,20 @@ export function Overfitting() {
   const Y = (l: number) => 180 - (l / 2.2) * 150
   const train = (e: number) => 2 * Math.exp(-e / 5) + 0.05
   const val = (e: number) => 2 * Math.exp(-e / 5) + 0.17 + 0.0022 * Math.max(0, e - 9) ** 2
+  // The sweet spot is wherever validation loss is actually lowest.
+  let best = 0
+  for (let e = 0; e <= 30; e += 0.05) if (val(e) < val(best)) best = e
   const pts = (f: (e: number) => number) => Array.from({ length: Math.floor(N * reveal) + 1 }, (_, i) => `${X((i / N) * 30)},${Y(f((i / N) * 30))}`).join(' ')
   return (
-    <Frame caption="Training loss (blue) keeps falling as the model memorises the training examples. Validation loss (orange) — measured on examples it never trains on — falls, then rises: the model is overfitting. The best model is at the bottom of the orange curve.">
+    <Frame caption="Training loss (blue) keeps falling as the model memorizes the training examples. Validation loss (orange), measured on examples it never trains on, falls, then rises: the model is overfitting. The best model is at the bottom of the orange curve.">
       <Svg h={210}>
         <line x1={40} y1={180} x2={375} y2={180} stroke={C.line} />
         <line x1={40} y1={20} x2={40} y2={180} stroke={C.line} />
-        {reveal > 0.5 && <rect x={X(14)} y={20} width={X(30) - X(14)} height={160} fill={C.red} opacity={0.07} />}
-        {reveal > 0.5 && <Label x={X(22)} y={34} color={C.red} size={11}>overfitting zone</Label>}
+        {reveal > 0.6 && <rect x={X(best + 2)} y={20} width={X(30) - X(best + 2)} height={160} fill={C.red} opacity={0.07} />}
+        {reveal > 0.6 && <Label x={X(best / 2 + 16)} y={34} color={C.red} size={11}>overfitting zone</Label>}
         <polyline points={pts(train)} fill="none" stroke={C.blue} strokeWidth={2.2} />
         <polyline points={pts(val)} fill="none" stroke={C.orange} strokeWidth={2.2} />
-        {reveal > 0.4 && <><circle cx={X(10.5)} cy={Y(val(10.5))} r={5} fill={C.green} /><Label x={X(10.5)} y={Y(val(10.5)) + 18} color={C.green} weight={600}>sweet spot</Label></>}
+        {reveal > best / 30 + 0.03 && <><circle cx={X(best)} cy={Y(val(best))} r={5} fill={C.green} /><Label x={X(best)} y={Y(val(best)) + 18} color={C.green} weight={600}>sweet spot</Label></>}
         <Label x={205} y={200}>epochs →</Label>
         <Label x={18} y={100} anchor="middle">loss</Label>
         <Label x={360} y={Y(train(30)) - 6} color={C.blue} anchor="end">train</Label>
@@ -293,7 +296,7 @@ export function Epochs() {
   const epoch = (n % 6) + 1
   const acc = 1 - 0.55 * Math.exp(-(epoch - 1 + p) * 0.7)
   return (
-    <Frame caption="One epoch = the model has seen every training example once. More epochs give it more practice — with diminishing returns, and eventually overfitting.">
+    <Frame caption="One epoch = the model has seen every training example once. More epochs give it more practice, with diminishing returns, and eventually overfitting.">
       <Svg h={170}>
         {Array.from({ length: 12 }, (_, i) => {
           const seen = i / 12 < p
@@ -334,7 +337,7 @@ export function LearningRate() {
     tiny: 'Tiny steps: always going the right way, but it would take forever to reach the bottom.',
     good: 'Good: big confident steps that settle at the bottom quickly.',
     big: 'Too big: it overshoots and bounces from side to side, only slowly settling.',
-    huge: 'Way too big: every step overshoots further — the loss explodes (you may see “NaN”).',
+    huge: 'Way too big: every step overshoots further: the loss explodes (you may see “NaN”).',
   }
   return (
     <Frame
@@ -380,7 +383,7 @@ export function BatchNoise() {
     </>
   )
   return (
-    <Frame caption="Each step estimates “downhill” from one batch of examples. A small batch (orange) gives a noisy estimate — a wobbly path, but each step is cheap. A large batch (blue) gives a smoother path but each step costs more memory and time.">
+    <Frame caption="Each step estimates “downhill” from one batch of examples. A small batch (orange) gives a noisy estimate, a wobbly path, but each step is cheap. A large batch (blue) gives a smoother path but each step costs more memory and time.">
       <Svg h={210}>
         {[1, 2, 3, 4, 5].map((r) => <ellipse key={r} cx={300} cy={95} rx={r * 50} ry={r * 26} fill="none" stroke={C.line} strokeOpacity={0.6} />)}
         <circle cx={300} cy={95} r={4} fill={C.green} />
@@ -397,11 +400,13 @@ export function BatchNoise() {
 // ---------------------------------------------------------------------------
 // Optimizers on a long narrow valley
 // ---------------------------------------------------------------------------
+const OPT_STEPS = 50 // enough for the paths to close in on the minimum
+
 function optPath(kind: 'sgd' | 'momentum' | 'adam') {
   const a = 0.05, b = 2
   let x = -9, y = 2.2, vx = 0, vy = 0, mx = 0, my = 0, sx = 0, sy = 0
   const pts: [number, number][] = [[x, y]]
-  for (let i = 1; i <= 40; i++) {
+  for (let i = 1; i <= OPT_STEPS; i++) {
     const gx = a * x, gy = b * y
     if (kind === 'sgd') { x -= 0.85 * gx; y -= 0.85 * gy }
     else if (kind === 'momentum') { vx = 0.85 * vx + gx; vy = 0.85 * vy + gy; x -= 0.12 * vx; y -= 0.12 * vy }
@@ -419,7 +424,7 @@ function optPath(kind: 'sgd' | 'momentum' | 'adam') {
 
 export function Optimizers() {
   const t = useTime()
-  const k = Math.floor((t * 6) % 52)
+  const k = Math.floor((t * 10) % (OPT_STEPS + 1))
   const paths = useMemo(() => ({ sgd: optPath('sgd'), momentum: optPath('momentum'), adam: optPath('adam') }), [])
   const P = ([x, y]: [number, number]) => `${200 + x * 19},${105 + y * 30}`
   const cols = { sgd: C.orange, momentum: C.purple, adam: C.green }
@@ -428,7 +433,7 @@ export function Optimizers() {
       <Svg h={210}>
         {[0.3, 1, 2, 3.5, 5].map((c) => <ellipse key={c} cx={200} cy={105} rx={Math.sqrt((2 * c) / 0.05) * 19} ry={Math.sqrt((2 * c) / 2) * 30} fill="none" stroke={C.line} strokeOpacity={0.6} />)}
         {(Object.keys(paths) as (keyof typeof paths)[]).map((key) => {
-          const pts = paths[key].slice(0, Math.min(k, 40) + 1)
+          const pts = paths[key].slice(0, Math.min(k, OPT_STEPS) + 1)
           return (
             <g key={key}>
               <polyline points={pts.map(P).join(' ')} fill="none" stroke={cols[key]} strokeWidth={1.8} />
@@ -483,7 +488,7 @@ export function Schedules() {
 }
 
 // ---------------------------------------------------------------------------
-// Regularisation
+// Regularization
 // ---------------------------------------------------------------------------
 export function Regularization() {
   const [mode, setMode] = useState<'wd' | 'ls'>('wd')
@@ -494,7 +499,7 @@ export function Regularization() {
     <Frame
       controls={<Choice options={[{ id: 'wd', label: 'Weight decay' }, { id: 'ls', label: 'Label smoothing' }]} value={mode} onChange={setMode} />}
       caption={mode === 'wd'
-        ? 'Weight decay gently pulls every weight toward zero at each step. Big weights must “earn their keep” by really reducing the loss, which keeps the model simpler and less likely to memorise.'
+        ? 'Weight decay gently pulls every weight toward zero at each step. Big weights must “earn their keep” by really reducing the loss, which keeps the model simpler and less likely to memorize.'
         : 'Label smoothing replaces the hard target “100% it’s a 3” with “91% a 3, a little bit everything else”. The model stops trying to be infinitely confident.'}
     >
       <Svg h={190}>
@@ -555,7 +560,7 @@ export function OptunaSearch() {
   const X = (x: number) => 40 + x * 330
   const Y = (y: number) => 180 - y * 160
   return (
-    <Frame caption="Each dot is one trial: a full (short) training run with one combination of settings. Optuna starts by sampling at random, then focuses near the best results so far. Trials that are clearly worse than average are stopped early (✕ = pruned). The background shows the true score, which Optuna can’t see — it has to discover it.">
+    <Frame caption="Each dot is one trial: a full (short) training run with one combination of settings. Optuna starts by sampling at random, then focuses near the best results so far. Trials that are clearly worse than average are stopped early (✕ = pruned). The background shows the true score, which Optuna can’t see: it has to discover it.">
       <Svg h={205}>
         {Array.from({ length: 22 * 10 }, (_, i) => {
           const cx = (i % 22) / 21, cy = Math.floor(i / 22) / 9

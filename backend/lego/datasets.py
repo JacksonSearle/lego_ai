@@ -65,35 +65,35 @@ DATASETS: dict[str, DatasetInfo] = {
     "mnist": DatasetInfo(
         "mnist", "MNIST", "70k handwritten digits, 28×28 grayscale, 10 classes. The classic first benchmark.",
         "classification", "image", [1, 28, 28], 10, class_names=[str(i) for i in range(10)],
-        source="http://yann.lecun.com/exdb/mnist/", train_size=60000, test_size=10000, mean=[0.1307], std=[0.3081],
+        source="http://yann.lecun.com/exdb/mnist/", train_size=55000, test_size=10000, mean=[0.1307], std=[0.3081],
     ),
     "fashion_mnist": DatasetInfo(
         "fashion_mnist", "Fashion-MNIST", "70k 28×28 grayscale clothing images in 10 classes. A harder drop-in for MNIST.",
         "classification", "image", [1, 28, 28], 10,
         class_names=["T-shirt", "Trouser", "Pullover", "Dress", "Coat", "Sandal", "Shirt", "Sneaker", "Bag", "Boot"],
-        source="https://github.com/zalandoresearch/fashion-mnist", train_size=60000, test_size=10000, mean=[0.2860], std=[0.3530],
+        source="https://github.com/zalandoresearch/fashion-mnist", train_size=55000, test_size=10000, mean=[0.2860], std=[0.3530],
     ),
     "cifar10": DatasetInfo(
-        "cifar10", "CIFAR-10", "60k 32×32 colour photos in 10 classes (planes, cars, birds, cats…).",
+        "cifar10", "CIFAR-10", "60k 32×32 color photos in 10 classes (planes, cars, birds, cats…).",
         "classification", "image", [3, 32, 32], 10,
         class_names=["plane", "car", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"],
-        source="https://www.cs.toronto.edu/~kriz/cifar.html", train_size=50000, test_size=10000,
+        source="https://www.cs.toronto.edu/~kriz/cifar.html", train_size=45000, test_size=10000,
         mean=[0.4914, 0.4822, 0.4465], std=[0.2470, 0.2435, 0.2616], augment=True,
     ),
     "ag_news": DatasetInfo(
         "ag_news", "AG News", "127k news headlines + descriptions in 4 topics (World, Sports, Business, Sci/Tech). Word tokens, 64 per article.",
         "classification", "tokens", [64], 4, vocab_size=20002, seq_len=64,
         class_names=["World", "Sports", "Business", "Sci/Tech"],
-        source="https://arxiv.org/abs/1509.01626", train_size=120000, test_size=7600,
+        source="https://arxiv.org/abs/1509.01626", train_size=115000, test_size=7600,
     ),
     "shakespeare": DatasetInfo(
-        "shakespeare", "Tiny Shakespeare", "1.1M characters of Shakespeare. Character-level language modelling: predict the next character.",
+        "shakespeare", "Tiny Shakespeare", "1.1M characters of Shakespeare. Character-level language modeling: predict the next character.",
         "lm", "tokens", [64], 65, vocab_size=65, seq_len=64,
-        source="https://github.com/karpathy/char-rnn", train_size=None, test_size=None,
+        source="https://github.com/karpathy/char-rnn", train_size=14117, test_size=1742,
     ),
     "spirals": DatasetInfo(
         "spirals", "Spirals (2D)", "Three interleaved 2D spirals. Tiny and instant; linear models fail, MLPs succeed.",
-        "classification", "vector", [2], 3, class_names=["A", "B", "C"], source="synthetic", train_size=3000, test_size=1000,
+        "classification", "vector", [2], 3, class_names=["A", "B", "C"], source="synthetic", train_size=2700, test_size=1000,
     ),
 }
 
@@ -181,7 +181,7 @@ def _load(info: DatasetInfo) -> Data:
 
 
 # ---------------------------------------------------------------------------
-# Loaders — each returns {"train_x", "train_y", "test_x", "test_y"[, "vocab"]}
+# Loaders - each returns {"train_x", "train_y", "test_x", "test_y"[, "vocab"]}
 # ---------------------------------------------------------------------------
 def _torchvision(cls_name):
     def load():

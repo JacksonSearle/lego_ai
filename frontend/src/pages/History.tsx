@@ -136,7 +136,7 @@ export function History() {
         <div className="grow">
           <h2>From least squares to transformers <GuideButton lesson="app.history" /></h2>
           <div className="small muted" style={{ marginTop: 3 }}>
-            Every model trains live on the same {fmtNum(budget.train_subset as number)} MNIST digits for {String(budget.epochs)} epochs (batch {String(budget.batch_size)}, {String(budget.device)}). Same data, same budget — only the architecture changes.
+            Every model trains live on the same {fmtNum(budget.train_subset as number)} MNIST digits for {String(budget.epochs)} epochs (batch {String(budget.batch_size)}, {String(budget.device)}). Same data, same budget, only the architecture changes.
           </div>
         </div>
         {!follow && running != null && <button onClick={() => { setFollow(true); setSelected(running) }}>Follow live ●</button>}
@@ -209,7 +209,7 @@ export function History() {
           {charts.steps.length > 0 ? (
             <LiveCharts steps={charts.steps} epochs={charts.epochs} showLr={false} height={210} />
           ) : (
-            <div className="empty">{jobId ? 'Waiting for its turn…' : 'Not trained yet — press Start.'}</div>
+            <div className="empty">{jobId ? 'Waiting for its turn…' : 'Not trained yet: press Start.'}</div>
           )}
         </div>
 

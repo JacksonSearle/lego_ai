@@ -29,7 +29,7 @@ export function QuickTrain({ valid }: { valid: boolean }) {
         <button className="primary" disabled={!valid || running} onClick={start}>{running ? <><span className="spinner" /> Training…</> : '▶ Train this model'}</button>
         {running && session && <button className="danger sm" onClick={() => api.stopJob(session.jobId)}>Stop</button>}
       </div>
-      {!valid && <div className="tiny bad" style={{ marginTop: 6 }}>Fix the red blocks first — the model must be valid to train.</div>}
+      {!valid && <div className="tiny bad" style={{ marginTop: 6 }}>Fix the red blocks first: the model must be valid to train.</div>}
       {session && (
         <div style={{ marginTop: 10 }}>
           <div className="row">

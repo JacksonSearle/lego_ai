@@ -25,7 +25,12 @@ interface Learn {
   update: (fn: (p: Progress) => Progress) => void
   overviewOpen: boolean
   setOverviewOpen: (b: boolean) => void
+  /** Which part of the Guidebook page is showing (shared so other pages can deep-link to it). */
+  guideView: GuideView
+  setGuideView: (v: GuideView) => void
 }
+
+export type GuideView = 'lessons' | 'skills' | 'achievements'
 
 const Ctx = createContext<Learn>(null as unknown as Learn)
 export const useLearn = () => useContext(Ctx)
@@ -40,6 +45,11 @@ export function LearnProvider({ children }: { children: ReactNode }) {
   const [rewards, setRewards] = useState<(Reward & { key: number })[]>([])
   const [levelUp, setLevelUp] = useState<Reward | null>(null)
   const [overviewOpen, setOverviewOpen] = useState(false)
+  const [guideView, setGuideViewState] = useState<GuideView>(() => (sessionStorage.getItem('lego-ai/guide-view') as GuideView) || 'lessons')
+  const setGuideView = useCallback((v: GuideView) => {
+    sessionStorage.setItem('lego-ai/guide-view', v)
+    setGuideViewState(v)
+  }, [])
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
@@ -65,8 +75,11 @@ export function LearnProvider({ children }: { children: ReactNode }) {
     const visible = rs.filter((r) => r.kind !== 'level')
     if (visible.length) {
       const withKeys = visible.map((r) => ({ ...r, key: ++rewardKey }))
-      setRewards((cur) => [...cur, ...withKeys].slice(-6))
-      withKeys.forEach((r) => setTimeout(() => setRewards((cur) => cur.filter((x) => x.key !== r.key)), r.kind === 'achievement' ? 6000 : 3500))
+      setRewards((cur) => [...cur, ...withKeys].slice(-8))
+      // Achievements stay until you close them; smaller notices fade by themselves.
+      withKeys
+        .filter((r) => r.kind !== 'achievement')
+        .forEach((r) => setTimeout(() => setRewards((cur) => cur.filter((x) => x.key !== r.key)), r.kind === 'quest' ? 9000 : 4500))
     }
     const lvl = rs.filter((r) => r.kind === 'level').pop()
     if (lvl) setLevelUp(lvl)
@@ -106,7 +119,7 @@ export function LearnProvider({ children }: { children: ReactNode }) {
     if (!a.has('skilltree')) return 'The skill tree opens at level 6'
     const missing = node.requires.filter((r) => !a.skills.has(r))
     if (missing.length) return `Unlock ${missing.map((m) => SKILLS.find((s) => s.id === m)?.title).join(' and ')} first`
-    if (a.skillPoints <= 0) return 'No skill points left — level up to earn more'
+    if (a.skillPoints <= 0) return 'No skill points left: level up to earn more'
     const { next, rewards: rs } = applyEvent({ ...p, skills: [...p.skills, id] }, { type: 'flag', name: `skill:${id}` })
     latest.current = next
     setProgress(next)
@@ -135,7 +148,7 @@ export function LearnProvider({ children }: { children: ReactNode }) {
   const value: Learn = {
     ready, progress, access: acc, track, flag, chooseMode, unlockSkill, setAvatar, reset, lesson, openLesson, spot, setSpot,
     rewards, dismissReward: (k) => setRewards((r) => r.filter((x) => x.key !== k)), levelUp, closeLevelUp: () => setLevelUp(null),
-    update, overviewOpen, setOverviewOpen,
+    update, overviewOpen, setOverviewOpen, guideView, setGuideView,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

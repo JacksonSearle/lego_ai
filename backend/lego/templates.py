@@ -117,7 +117,7 @@ TEMPLATES: dict[str, list[dict]] = {
         T("char_gru", "Char GRU", "Same idea as the LSTM with lighter GRU cells.",
           [B("embedding", dim=64), B("gru", hidden=256, layers=2), B("classifier")], {"epochs": 5, "lr": 3e-3, "grad_clip": 1.0}),
         T("tiny_gpt", "Tiny GPT",
-          "Decoder-only transformer with causal attention — a miniature GPT.",
+          "Decoder-only transformer with causal attention, a miniature GPT.",
           [B("embedding", dim=128), B("positional_encoding"), B("transformer", 4, heads=4, dropout=0.1, causal="yes"),
            B("layernorm"), B("classifier")],
           {"epochs": 5, "lr": 1e-3, "warmup_epochs": 0.5, "weight_decay": 0.1}),
@@ -128,7 +128,7 @@ TEMPLATES: dict[str, list[dict]] = {
         T("mlp", "MLP", "Three hidden layers carve out the spirals: ~99%.",
           [B("linear", 3, out_features=64, activation="relu"), B("classifier")], {"epochs": 30, "lr": 1e-2, "batch_size": 64},
           recommended=True),
-        T("deep_linear", "Deep Linear Network", "Three hidden layers but no activation — still just a linear model.",
+        T("deep_linear", "Deep Linear Network", "Three hidden layers but no activation, still just a linear model.",
           [B("linear", 3, out_features=64, activation="none"), B("classifier")], {"epochs": 20, "lr": 1e-2, "batch_size": 64}),
     ],
 }

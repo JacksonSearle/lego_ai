@@ -1,7 +1,7 @@
 """Block registry.
 
-Every block — built-in or user-defined — is described by a ``BlockSpec``. The
-spec carries everything the UI needs to render the block (name, colour,
+Every block, built-in or user-defined, is described by a ``BlockSpec``. The
+spec carries everything the UI needs to render the block (name, color,
 category, parameter descriptions/defaults) and a ``build`` callable that turns
 an input shape + parameters into an ``nn.Module``.
 

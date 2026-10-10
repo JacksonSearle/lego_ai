@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { api, downloadJSON } from '../api'
 import { MiniStack } from '../components/ArchView'
 import { Brick } from '../components/Brick'
+import { NumInput } from '../components/NumInput'
 import { ParamField } from '../components/ParamField'
 import { GuideButton } from '../learn/GuideButton'
 import { blockAllowed, skillForDataset } from '../learn/engine'
@@ -17,7 +18,7 @@ const MIME = 'application/x-lego'
 
 export function Builder() {
   const { blocks: specs, meta, draft, setDraft, inspect, dataset, datasets, undo, redo, canUndo, canRedo, setTab, toast, loadConfig } = useStore()
-  const { access, flag, openLesson } = useLearn()
+  const { access, flag, openLesson, setGuideView } = useLearn()
   const [taskFilter, setTaskFilter] = useState<'all' | 'image' | 'text'>('all')
   const [selected, setSelected] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragData | null>(null)
@@ -82,6 +83,8 @@ export function Builder() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
       if (t?.closest?.('input, textarea, select, .cm-editor')) return
+      // Never edit the model while a popup (lesson, level-up, templates…) is covering it.
+      if (document.querySelector('.modal-back')) return
       const mod = e.metaKey || e.ctrlKey
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault()
@@ -173,7 +176,7 @@ export function Builder() {
     flag('template')
     setSelected(null)
     setShowTemplates(false)
-    toast(`Loaded “${t.name}” — training settings updated too. Undo with ⌘Z.`, 'ok')
+    toast(`Loaded “${t.name}”: training settings updated too. Undo with ⌘Z.`, 'ok')
   }
 
   const importFile = async (f: File) => {
@@ -266,7 +269,7 @@ export function Builder() {
           </div>
         ))}
         {lockedCount > 0 && (
-          <div className="locked-hint" onClick={() => { sessionStorage.setItem('lego-ai/guide-view', 'skills'); setTab('guide') }}>
+          <div className="locked-hint" onClick={() => { setGuideView('skills'); setTab('guide') }}>
             🔒 {lockedCount} more blocks {access.has('skilltree') ? 'in the Skill Tree' : 'unlock as you level up'}
           </div>
         )}
@@ -397,7 +400,7 @@ export function Builder() {
               <TemplateGrid templates={templates} specs={specs} onUse={useTemplate} />
               <div className="row" style={{ marginTop: 16 }}>
                 <button onClick={() => { setDraft((d) => ({ ...d, blocks: [], name: 'My model' })); setShowTemplates(false) }}>Start from scratch</button>
-                <span className="small muted">An empty stack — drag blocks in from the palette.</span>
+                <span className="small muted">An empty stack: drag blocks in from the palette.</span>
               </div>
             </div>
           </div>
@@ -437,7 +440,7 @@ function EmptyState({ templates, specs, onUse, onDragOver, onDrop, dataset }: {
     <div style={{ padding: '28px 32px', maxWidth: 980, margin: '0 auto' }} onDragOver={onDragOver} onDrop={onDrop} data-tour="stack">
       {templates.length ? <>
         <h2>Start with a proven architecture for {dataset}</h2>
-        <p className="muted" style={{ marginTop: 4 }}>Pick a template to customise, or drag blocks from the left to build from scratch.</p>
+        <p className="muted" style={{ marginTop: 4 }}>Pick a template to customize, or drag blocks from the left to build from scratch.</p>
       </> : <>
         <h2>Build your model</h2>
         <p className="muted" style={{ marginTop: 4 }}>Drag blocks from the panel on the left into this space. Data flows <b>up</b>: a simple digit reader is <b>Flatten</b> at the bottom, then <b>Linear</b>, then the <b>Output Head</b> on top.</p>
@@ -494,7 +497,7 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
           <div className="row">
             <div className="stepper">
               <button onClick={() => setRepeat(inst.repeat - 1)} disabled={inst.repeat <= 1}>−</button>
-              <input type="number" value={inst.repeat} min={1} max={64} onChange={(e) => setRepeat(parseInt(e.target.value, 10))} />
+              <NumInput int value={inst.repeat} min={1} max={64} emptyValue={1} onChange={(n) => setRepeat(n ?? 1)} />
               <button onClick={() => setRepeat(inst.repeat + 1)}>+</button>
             </div>
           </div>
@@ -508,7 +511,7 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
             {p.type === 'activation' && !actsUnlocked && <span className="tiny faint">🔒 Choosing activations unlocks at level 5</span>}
           </div>
         ))}
-        {spec.params.length === 0 && <div className="small muted">This block has no parameters — its sizes are inferred from its input.</div>}
+        {spec.params.length === 0 && <div className="small muted">This block has no parameters: its sizes are inferred from its input.</div>}
 
         <div className="row" style={{ marginTop: 6 }}>
           <button onClick={onDuplicate} title="⌘D">Duplicate</button>
@@ -545,7 +548,7 @@ function ModelSummary() {
         <div className="stat-grid">
           <div className="stat"><div className="k">Blocks</div><div className="v">{draft.blocks.reduce((a, b) => a + b.repeat, 0)}</div></div>
           <div className="stat"><div className="k">Params</div><div className="v">{fmtNum(inspect?.total_params)}</div></div>
-          <div className="stat"><div className="k">Status</div><div className={`v ${inspect?.ok ? 'ok' : 'bad'}`}>{draft.blocks.length ? (inspect?.ok ? 'valid' : 'error') : '—'}</div></div>
+          <div className="stat"><div className="k">Status</div><div className={`v ${inspect?.ok ? 'ok' : 'bad'}`}>{draft.blocks.length ? (inspect?.ok ? 'valid' : 'error') : '-'}</div></div>
         </div>
         {inspect?.error && draft.blocks.length > 0 && <div className="error-box">{inspect.error}</div>}
         {Object.keys(counts).length > 0 && (
@@ -563,7 +566,7 @@ function ModelSummary() {
         <ul className="small muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
           <li>Click a block to edit its parameters here.</li>
           <li>Data flows <b>upward</b>: the shape after each block is shown on the arrows.</li>
-          <li>Input sizes are inferred automatically — you only choose output sizes.</li>
+          <li>Input sizes are inferred automatically: you only choose output sizes.</li>
           <li>End with an <b>Output Head</b>; it sizes itself to the dataset.</li>
           <li><span className="kbd">⌫</span> delete · <span className="kbd">⌘D</span> duplicate · <span className="kbd">⌘Z</span> undo</li>
         </ul>

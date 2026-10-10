@@ -1,6 +1,6 @@
 # Lego AI
 
-Build neural networks out of coloured blocks, train them with live charts, tune them with Optuna,
+Build neural networks out of colored blocks, train them with live charts, tune them with Optuna,
 and compare them on a leaderboard. Every run is saved as a JSON config that retrains to the
 **same numbers, bit for bit**.
 
@@ -38,7 +38,7 @@ On first launch you choose between two modes:
   | 6 | Skill Tree, more datasets, History of AI |
   | 7 | optimizer, batch size + memory checker |
   | 8 | JSON import/export, resume, templates |
-  | 9 | schedules, regularisation, stability |
+  | 9 | schedules, regularization, stability |
   | 10 | Optuna |
   | 11 | Custom Python blocks |
   | 12 | seed / device / max steps |
@@ -57,7 +57,7 @@ You can switch modes or reset progress from the avatar menu. Progress is stored 
 The **Guidebook** tab is always available. It holds 48 lessons: concepts (neural nets, MNIST,
 training, layers, tensor shapes, overfitting), every page and action (loading a model from JSON,
 resuming, reproducing, the memory checker, Optuna, a line-by-line custom-block walkthrough),
-training knobs (epochs, learning rate, batch size, optimizers, schedules, regularisation, seeds)
+training knobs (epochs, learning rate, batch size, optimizers, schedules, regularization, seeds)
 and every block. Block lessons include an animated diagram of what the block does, a walkthrough of
 each parameter, the matching PyTorch code annotated line by line, the original paper and a quiz.
 Every page has a **?** button linking to its lesson. The lesson content lives in
@@ -76,16 +76,16 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
 
 ## Blocks
 
-Each colour family is one kind of layer:
+Each color family is one kind of layer:
 
 - **Dense** (blues): Linear, MLP Block (optionally residual)
 - **Convolution** (oranges): Conv2D (+BN), Depthwise-Separable Conv, Residual Conv Block
 - **Pooling** (ambers/cyan): Max Pool, Average Pool, Global Average Pool, Sequence Pool
 - **Recurrent** (greens): RNN (Elman), LSTM, GRU
 - **Sequence** (pinks): Token Embedding, Image → Sequence, Patch Embedding, Positional Encoding
-- **Attention** (purples): Transformer Block (causal mask is automatic for language modelling), Self-Attention, MLP-Mixer Block
+- **Attention** (purples): Transformer Block (causal mask is automatic for language modeling), Self-Attention, MLP-Mixer Block
 - **Normalization** (teals): Batch Norm, Layer Norm
-- **Utility** (greys/yellow): Flatten, Dropout, Activation
+- **Utility** (grays/yellow): Flatten, Dropout, Activation
 - **Head** (red): Output Head, which sizes itself to the dataset (classes, or vocab per step)
 
 Blocks never ask for their input size, because it comes from the block below. Any block with an
@@ -94,7 +94,7 @@ activation can use relu, gelu, silu, tanh, sigmoid, leaky_relu, elu, mish, softp
 ## Datasets
 
 MNIST, Fashion-MNIST, CIFAR-10, AG News (word-level topic classification), Tiny Shakespeare
-(character-level language modelling), and 2-D Spirals (synthetic, instant). For each, the
+(character-level language modeling), and 2-D Spirals (synthetic, instant). For each, the
 validation split is a fixed 5k (or 10%) slice of the training set, the same for every run, and
 the official test set is scored once at the end.
 

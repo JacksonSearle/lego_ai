@@ -48,7 +48,7 @@ export const C = {
   teal: '#2dd4bf',
 }
 
-/** Colour scale for a value in [0, 1] (dark → bright). */
+/** Color scale for a value in [0, 1] (dark → bright). */
 export const heat = (v: number, hue = 210) => `hsl(${hue} 80% ${10 + clamp(v) * 55}%)`
 
 export function Svg({ children, h = 220, w = 400 }: { children: ReactNode; h?: number; w?: number }) {

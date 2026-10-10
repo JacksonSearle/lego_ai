@@ -118,7 +118,7 @@ export function CustomBlocks() {
       await refreshBlocks()
       await load(filename.endsWith('.py') ? filename : `${filename}.py`)
       flag('customSaved')
-      toast(`Saved — ${r.blocks?.length} block(s) now in the builder palette`, 'ok')
+      toast(`Saved: ${r.blocks?.length} block(s) now in the builder palette`, 'ok')
     } catch (e) {
       setResult({ ok: false, error: (e as Error).message })
     }
@@ -188,11 +188,11 @@ export function CustomBlocks() {
           <h4>How custom blocks work</h4>
           <ol className="small muted" style={{ paddingLeft: 18, lineHeight: 1.65, margin: '8px 0 0' }}>
             <li>Write an <code>nn.Module</code> and decorate it with <code>@lego_block(...)</code>.</li>
-            <li><code>__init__</code> receives <code>in_shape</code> first — the input shape <i>without</i> the batch dimension, e.g. <code>(64,)</code>, <code>(T, D)</code> or <code>(C, H, W)</code>.</li>
+            <li><code>__init__</code> receives <code>in_shape</code> first, the input shape <i>without</i> the batch dimension, e.g. <code>(64,)</code>, <code>(T, D)</code> or <code>(C, H, W)</code>.</li>
             <li>Each <code>Param</code> becomes a field in the block's side panel; its value is passed as a keyword argument.</li>
             <li>Add a <code>ctx=None</code> argument to see dataset facts: <code>ctx.num_classes</code>, <code>ctx.vocab_size</code>, <code>ctx.task</code>.</li>
             <li>Output shapes are inferred automatically by running a tiny dummy batch.</li>
-            <li>Raise <code>ValueError("…")</code> for unsupported input shapes — the message is shown on the block.</li>
+            <li>Raise <code>ValueError("…")</code> for unsupported input shapes: the message is shown on the block.</li>
           </ol>
         </div>
         <div>
@@ -205,7 +205,7 @@ type: "int" | "float" | "bool"
     | "activation"  (any registered activation)`}</pre>
         </div>
         <div className="note-box">
-          Runs that use a custom block store its source code in their config, so they can always be rebuilt — even after you edit or delete the file.
+          Runs that use a custom block store its source code in their config, so they can always be rebuilt, even after you edit or delete the file.
         </div>
       </aside>
     </div>

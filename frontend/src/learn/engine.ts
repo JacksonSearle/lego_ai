@@ -153,7 +153,8 @@ export function access(p: Progress): Access {
     blocks: features.has('custom.page') ? new Set([...blocks, '__custom__']) : blocks,
     datasets,
     skills,
-    skillPoints: skillPointsEarned(level) - p.skills.length,
+    // Never hand out more points than there are skills left to buy.
+    skillPoints: Math.max(0, Math.min(skillPointsEarned(level) - p.skills.length, SKILLS.filter((s) => !skills.has(s.id)).length)),
   }
 }
 

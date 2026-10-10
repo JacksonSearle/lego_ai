@@ -142,6 +142,9 @@ export interface Summary {
   reproduced?: boolean
   reproduce_diff?: Record<string, [number, number]>
   steps_per_epoch?: number
+  train_examples?: number
+  /** Set while a run is paused mid-training: the (fractional) epoch it stopped at. */
+  paused_at?: number
 }
 
 export interface StepPoint { step: number; epoch: number; loss: number; acc: number; lr: number }
@@ -220,6 +223,9 @@ export interface ProbeResult {
   fastest: number | null
   requested: number | null
   requested_fits: boolean | null
+  train_examples?: number
+  /** Why some sizes could not be tested (time limit, test process failure). */
+  note?: string | null
 }
 
 export interface HistoryStage {

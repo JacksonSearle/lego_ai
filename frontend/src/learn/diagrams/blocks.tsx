@@ -43,7 +43,7 @@ export function FlattenDiagram() {
   const { p } = cycle(t, 4)
   const k = ease(clamp(p < 0.5 ? p * 2.4 - 0.1 : (1 - p) * 2.4 - 0.1))
   return (
-    <Frame caption="Flatten lays the rows of a grid end-to-end into one long list. Nothing is learned and no numbers change — only the shape: 4×4 → 16 here, 1×28×28 → 784 for MNIST.">
+    <Frame caption="Flatten lays the rows of a grid end-to-end into one long list. Nothing is learned and no numbers change, only the shape: 4×4 → 16 here, 1×28×28 → 784 for MNIST.">
       <Svg h={170}>
         {Array.from({ length: 16 }, (_, i) => {
           const r = Math.floor(i / 4), c = i % 4
@@ -99,7 +99,11 @@ const ACT: Record<string, (x: number) => number> = {
   gelu: (x) => 0.5 * x * (1 + Math.tanh(0.7978845608 * (x + 0.044715 * x ** 3))),
   sigmoid: (x) => 1 / (1 + Math.exp(-x)),
   tanh: Math.tanh,
+  silu: (x) => x / (1 + Math.exp(-x)),
   leaky_relu: (x) => (x > 0 ? x : 0.1 * x),
+  elu: (x) => (x > 0 ? x : Math.exp(x) - 1),
+  mish: (x) => x * Math.tanh(Math.log(1 + Math.exp(x))),
+  softplus: (x) => Math.log(1 + Math.exp(x)),
   identity: (x) => x,
 }
 
@@ -108,15 +112,22 @@ export function ActivationDiagram() {
   const t = useTime()
   const x = Math.sin(t * 0.9) * 3
   const f = ACT[fn]
+  // The plot shows x and y from -3.4 to 3.4. Curves are drawn unclamped and clipped at the
+  // frame, so a straight line (relu, identity) stays straight all the way to the edge.
+  const R = 3.4
   const X = (v: number) => 200 + v * 50
-  const Y = (v: number) => 100 - v * 30
+  const Y = (v: number) => 100 - v * 27
   const notes: Record<string, string> = {
     relu: 'ReLU: negatives become 0, positives pass through. Simple, fast, the default since 2012.',
     gelu: 'GELU: a smooth ReLU used in transformers (GPT, BERT).',
     sigmoid: 'Sigmoid squashes everything into 0…1. Used in 1980s networks; its flat ends slow learning.',
     tanh: 'Tanh squashes into −1…1. Used inside RNNs and LSTMs.',
-    leaky_relu: 'Leaky ReLU lets a little bit of negative signal through so neurons never fully “die”.',
-    identity: 'No activation (identity): stacking such layers is no better than one layer — they collapse into a single linear map.',
+    silu: 'SiLU (also called Swish): x × sigmoid(x). Smooth, dips slightly below zero, then rises like ReLU.',
+    leaky_relu: 'Leaky ReLU lets a little bit of negative signal through so neurons never fully “die”. (Drawn here with a slope of 0.1 so you can see it; the block uses 0.01.)',
+    elu: 'ELU: like ReLU for positives, but negatives curve smoothly down toward −1 instead of being cut to 0.',
+    mish: 'Mish: a smooth, self-regularizing cousin of SiLU, popular in some vision models.',
+    softplus: 'Softplus: a smooth version of ReLU that is always positive, log(1 + eˣ).',
+    identity: 'No activation (identity): stacking such layers is no better than one layer: they collapse into a single linear map.',
   }
   return (
     <Frame
@@ -124,13 +135,22 @@ export function ActivationDiagram() {
       caption={<>An activation function bends each number after a Linear layer. Without this bend, any stack of layers is equivalent to one straight-line (linear) model. {notes[fn]}</>}
     >
       <Svg h={200}>
-        <line x1={40} y1={100} x2={360} y2={100} stroke={C.line} />
-        <line x1={200} y1={10} x2={200} y2={190} stroke={C.line} />
-        <polyline points={Array.from({ length: 121 }, (_, i) => { const v = -3.2 + (i / 120) * 6.4; return `${X(v)},${Y(clamp(f(v), -3, 3))}` }).join(' ')} fill="none" stroke={C.accent} strokeWidth={2.5} />
+        <defs><clipPath id="act-frame"><rect x={X(-R)} y={Y(R)} width={X(R) - X(-R)} height={Y(-R) - Y(R)} /></clipPath></defs>
+        <line x1={X(-R)} y1={100} x2={X(R)} y2={100} stroke={C.line} />
+        <line x1={200} y1={Y(R)} x2={200} y2={Y(-R)} stroke={C.line} />
+        {[-3, -2, -1, 1, 2, 3].map((v) => (
+          <g key={v}>
+            <line x1={X(v)} y1={97} x2={X(v)} y2={103} stroke={C.line} />
+            <Label x={X(v)} y={115} size={9} color={C.faint}>{v}</Label>
+            <line x1={197} y1={Y(v)} x2={203} y2={Y(v)} stroke={C.line} />
+            <Label x={192} y={Y(v) + 3} size={9} color={C.faint} anchor="end">{v}</Label>
+          </g>
+        ))}
+        <polyline clipPath="url(#act-frame)" points={Array.from({ length: 201 }, (_, i) => { const v = -R + (i / 200) * 2 * R; return `${X(v)},${Y(f(v))}` }).join(' ')} fill="none" stroke={C.accent} strokeWidth={2.5} />
         <line x1={X(x)} y1={100} x2={X(x)} y2={Y(f(x))} stroke={C.blue} strokeDasharray="3 3" />
         <circle cx={X(x)} cy={100} r={4} fill={C.blue} />
         <circle cx={X(x)} cy={Y(f(x))} r={6} fill={C.accent} />
-        <Label x={360} y={24} anchor="end" color={C.text} weight={600}>in {x.toFixed(2)} → out {f(x).toFixed(2)}</Label>
+        <Label x={34} y={22} anchor="start" color={C.text} weight={600}>in {x.toFixed(2)} → out {f(x).toFixed(2)}</Label>
       </Svg>
     </Frame>
   )
@@ -157,7 +177,7 @@ export function DropoutDiagram() {
             {off(l, i) && <Label x={xs[l]} y={y + 4} size={10} color={C.red}>✕</Label>}
           </g>
         )))}
-        <Label x={200} y={202}>training step #{tick + 1} — dropped neurons change every step</Label>
+        <Label x={200} y={202}>training step #{tick + 1}: dropped neurons change every step</Label>
       </Svg>
     </Frame>
   )
@@ -176,7 +196,7 @@ export function MlpDiagram() {
     { x: 270, w: 60, h: 70, label: 'Linear', sub: 'hidden → D', c: '#3b82f6' },
   ]
   return (
-    <Frame caption="An MLP block is two Linear layers with an activation between them. The first widens the signal (e.g. 128 → 512) so it has room to compute; the second narrows it back. With “residual” on, the input is added to the output (the curved arrow) — the trick used inside every transformer.">
+    <Frame caption="An MLP block is two Linear layers with an activation between them. The first widens the signal (e.g. 128 → 512) so it has room to compute; the second narrows it back. With “residual” on, the input is added to the output (the curved arrow), the trick used inside every transformer.">
       <Svg h={210}>
         {boxes.map((b, i) => (
           <g key={i}>
@@ -196,7 +216,7 @@ export function MlpDiagram() {
 }
 
 // ---------------------------------------------------------------------------
-// Normalisation: batch norm vs layer norm
+// Normalization: batch norm vs layer norm
 // ---------------------------------------------------------------------------
 export function NormDiagram({ initial = 'batch' }: { initial?: 'batch' | 'layer' }) {
   const [mode, setMode] = useState<'batch' | 'layer'>(initial)
@@ -237,7 +257,7 @@ export function NormDiagram({ initial = 'batch' }: { initial?: 'batch' | 'layer'
         <line x1={240} y1={140} x2={380} y2={140} stroke={C.line} />
         <line x1={300} y1={134} x2={300} y2={146} stroke={C.green} />
         <Label x={300} y={160} color={C.green} size={10}>0</Label>
-        <Label x={310} y={185} size={10}>{k < 0.5 ? 'values before' : 'centred & scaled'}</Label>
+        <Label x={310} y={185} size={10}>{k < 0.5 ? 'values before' : 'centered & scaled'}</Label>
       </Svg>
     </Frame>
   )
@@ -269,7 +289,7 @@ export function ConvDiagram() {
   }), [])
   const cs = 22
   return (
-    <Frame caption="A convolution slides a small grid of weights (the kernel or filter, here 3×3) across the image. At each position it multiplies the 9 pixels under it by the 9 weights and adds them up — one output number. This kernel detects horizontal edges (dark above, bright below). A Conv2D layer learns many such filters at once; each produces its own output map (channel).">
+    <Frame caption="A convolution slides a small grid of weights (the kernel or filter, here 3×3) across the image. At each position it multiplies the 9 pixels under it by the 9 weights and adds them up, one output number. This kernel detects horizontal edges (dark above, bright below). A Conv2D layer learns many such filters at once; each produces its own output map (channel).">
       <Svg h={215}>
         <Label x={95} y={14}>input 7×7</Label>
         {IMG7.flatMap((row, r) => row.map((v, c) => <rect key={`${r}${c}`} x={18 + c * cs} y={22 + r * cs} width={cs - 2} height={cs - 2} rx={2} fill={v ? '#e5e7eb' : '#1e293b'} />))}
@@ -315,8 +335,8 @@ export function PoolDiagram() {
     <Frame
       controls={<Choice options={[{ id: 'max', label: 'Max pool' }, { id: 'avg', label: 'Average pool' }, { id: 'global', label: 'Global average' }]} value={mode} onChange={setMode} />}
       caption={mode === 'global'
-        ? 'Global Average Pooling averages a whole feature map into a single number — one per channel. It turns C×H×W into just C, ready for the output head, with no weights at all.'
-        : `Pooling shrinks an image by summarising each 2×2 window with its ${mode === 'max' ? 'largest value (“was this feature present anywhere here?”)' : 'average'}. The grid halves in width and height, making later layers cheaper and a little less sensitive to exact positions.`}
+        ? 'Global Average Pooling averages a whole feature map into a single number, one per channel. It turns C×H×W into just C, ready for the output head, with no weights at all.'
+        : `Pooling shrinks an image by summarizing each 2×2 window with its ${mode === 'max' ? 'largest value (“was this feature present anywhere here?”)' : 'average'}. The grid halves in width and height, making later layers cheaper and a little less sensitive to exact positions.`}
     >
       <Svg h={190}>
         {POOL_IN.flatMap((row, r) => row.map((v, c) => {
@@ -378,7 +398,7 @@ export function DepthwiseDiagram() {
   const { p } = cycle(t, 3)
   const ch = [C.red, C.green, C.blue]
   return (
-    <Frame caption="A normal conv mixes all channels and all positions at once (expensive). Depthwise-separable conv splits that in two: (1) each channel gets its own small spatial filter, (2) a 1×1 conv mixes the channels. Similar power, often 8–9× fewer weights — that’s how MobileNet runs on phones.">
+    <Frame caption="A normal conv mixes all channels and all positions at once (expensive). Depthwise-separable conv splits that in two: (1) each channel gets its own small spatial filter, (2) a 1×1 conv mixes the channels. Similar power, often 8–9× fewer weights: that’s how MobileNet runs on phones.">
       <Svg h={200}>
         {ch.map((c, i) => (
           <g key={i}>
@@ -411,7 +431,7 @@ export function PatchDiagram() {
   const { p } = cycle(t, 4)
   const k = ease(clamp(p * 2 - 0.2))
   return (
-    <Frame caption="Patch Embedding cuts the image into squares (patches), flattens each, and projects it to a vector — a “visual word”. The image becomes a sequence of tokens that a transformer can read. MNIST with 4×4 patches → 7×7 = 49 tokens.">
+    <Frame caption="Patch Embedding cuts the image into squares (patches), flattens each, and projects it to a vector, a “visual word”. The image becomes a sequence of tokens that a transformer can read. MNIST with 4×4 patches → 7×7 = 49 tokens.">
       <Svg h={200}>
         {Array.from({ length: 16 }, (_, i) => {
           const r = Math.floor(i / 4), c = i % 4
@@ -491,7 +511,7 @@ export function EmbeddingDiagram() {
   const i = Math.floor(t / 1.4) % WORDS.length
   const rows = [4, 9, 12, 87, 301]
   return (
-    <Frame caption="Computers can’t multiply words. A tokenizer turns each word into an id number, and the Embedding layer looks up that row in a big learned table — a list of numbers (a vector) for each word. Words used in similar ways end up with similar vectors.">
+    <Frame caption="Computers can’t multiply words. A tokenizer turns each word into an id number, and the Embedding layer looks up that row in a big learned table, a list of numbers (a vector) for each word. Words used in similar ways end up with similar vectors.">
       <Svg h={200}>
         {WORDS.map(([w, id], k) => (
           <g key={w}>
@@ -537,7 +557,7 @@ export function SeqPoolDiagram() {
 }
 
 // ---------------------------------------------------------------------------
-// RNN: hidden state travelling through time
+// RNN: hidden state traveling through time
 // ---------------------------------------------------------------------------
 export function RnnDiagram() {
   const t = useTime()
@@ -580,13 +600,13 @@ export function LstmDiagram({ initial = 'lstm' }: { initial?: 'lstm' | 'gru' }) 
     <Frame
       controls={<Choice options={[{ id: 'lstm', label: 'LSTM (1997)' }, { id: 'gru', label: 'GRU (2014)' }]} value={mode} onChange={setMode} />}
       caption={mode === 'lstm'
-        ? 'The LSTM adds a “conveyor belt” (the cell state, top) that carries memory along with only small, controlled changes. Three gates — little valves between 0 (closed) and 1 (open) — decide what to forget, what to write and what to output. Because the belt isn’t squashed at every step, memory and gradients survive hundreds of steps.'
+        ? 'The LSTM adds a “conveyor belt” (the cell state, top) that carries memory along with only small, controlled changes. Three gates, little valves between 0 (closed) and 1 (open), decide what to forget, what to write and what to output. Because the belt isn’t squashed at every step, memory and gradients survive hundreds of steps.'
         : 'The GRU is a slimmer LSTM: no separate belt, just two gates. The update gate blends old memory with the new candidate; the reset gate decides how much of the past to use when making that candidate. Often just as good, and faster.'}
     >
       <Svg h={190}>
         <rect x={30} y={30} width={340} height={22} rx={11} fill="#14532d" />
         {Array.from({ length: 10 }, (_, i) => <rect key={i} x={30 + ((i * 40 + belt) % 340)} y={36} width={14} height={10} rx={3} fill={C.green} opacity={0.7} />)}
-        <Label x={200} y={22} size={10}>{mode === 'lstm' ? 'cell state — long-term memory' : 'hidden state — memory'}</Label>
+        <Label x={200} y={22} size={10}>{mode === 'lstm' ? 'cell state: long-term memory' : 'hidden state: memory'}</Label>
         {gates.map((gt) => (
           <g key={gt.name}>
             <line x1={gt.x} y1={52} x2={gt.x} y2={100} stroke={gt.c} strokeWidth={2} strokeOpacity={0.3 + gt.v * 0.7} />
@@ -625,7 +645,7 @@ export function AttentionDiagram({ causalDefault = false }: { causalDefault?: bo
   return (
     <Frame
       controls={<Choice options={[{ id: 'full', label: 'Full attention' }, { id: 'causal', label: 'Causal (no peeking)' }]} value={causal ? 'causal' : 'full'} onChange={(v) => setCausal(v === 'causal')} />}
-      caption={<>Self-attention lets every word gather information from every other word. The highlighted word asks a question (its <i>query</i>); each word offers a <i>key</i>; the better they match, the thicker the line and the more of that word’s <i>value</i> is mixed in. Here “it” attends mostly to “cat” — that’s how the model works out what “it” means. {causal && 'With a causal mask, words can only look backwards — needed when the model is predicting the next word.'}</>}
+      caption={<>Self-attention lets every word gather information from every other word. The highlighted word asks a question (its <i>query</i>); each word offers a <i>key</i>; the better they match, the thicker the line and the more of that word’s <i>value</i> is mixed in. Here “it” attends mostly to “cat”. That’s how the model works out what “it” means. {causal && 'With a causal mask, words can only look backwards, needed when the model is predicting the next word.'}</>}
     >
       <Svg h={190}>
         {xs.map((x, k) => w[k] > 0.005 && (
@@ -652,7 +672,7 @@ export function PositionalDiagram() {
   const freqs = [1, 0.5, 0.25, 0.125]
   const X = (i: number) => 40 + i * 42
   return (
-    <Frame caption="Attention by itself ignores word order (“dog bites man” = “man bites dog”). Positional encoding adds a unique pattern to each position — here, sine waves of different speeds. Read down a column and you get a position’s “fingerprint”, added to that token’s embedding.">
+    <Frame caption="Attention by itself ignores word order (“dog bites man” = “man bites dog”). Positional encoding adds a unique pattern to each position (here, sine waves of different speeds). Read down a column and you get a position’s “fingerprint”, added to that token’s embedding.">
       <Svg h={200}>
         {freqs.map((f, r) => (
           <g key={r}>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { MiniStack } from '../components/ArchView'
 import { LiveCharts } from '../components/LiveCharts'
+import { NumInput } from '../components/NumInput'
 import { ParamField } from '../components/ParamField'
 import { HP_FEATURE } from '../learn/curriculum'
 import { skillForDataset } from '../learn/engine'
@@ -11,7 +12,7 @@ import { useStore } from '../store'
 import type { HyperParam, ProbeResult, RunRow, SearchSpec } from '../types'
 import { fmtDur, fmtLoss, fmtNum, fmtPct } from '../util'
 
-const SPACE_KEY = 'lego-ai/search-space'
+const SPACE_KEY = 'lego-ai/search-space-v2'
 
 export function Train() {
   const { meta, draft, setDraft, dataset, datasets, inspect, blocks: specs, session, attachJob, toConfig, setTab, toast, loadConfig } = useStore()
@@ -78,7 +79,7 @@ export function Train() {
       // Make sure the chosen batch size fits before committing to a run.
       const quick = await api.probeQuick(cfg)
       if (quick.requested_fits === false && override !== probeKey + t.batch_size) {
-        toast(`Batch size ${t.batch_size} probably won't fit in memory on ${quick.device}. Testing alternatives — pick one, or press “Train anyway”.`, 'error')
+        toast(`Batch size ${t.batch_size} probably won't fit in memory on ${quick.device}. Testing alternatives: pick one, or press “Train anyway”.`, 'error')
         setOverride(probeKey + t.batch_size)
         setStarting(false)
         await runProbe()
@@ -99,7 +100,7 @@ export function Train() {
     }
   }
 
-  const stop = () => session && api.stopJob(session.jobId).then(() => toast('Stopping after the current step…'))
+  const stop = () => session && api.stopJob(session.jobId).then(() => toast(session.kind === 'train' ? 'Pausing after the current step. Press Resume to continue from the same point.' : 'Stopping after the current step…'))
 
   return (
     <div className="page">
@@ -118,7 +119,7 @@ export function Train() {
                   <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }), { undoable: false })} />
                   <div className="small muted">
                     {draft.blocks.length} blocks · {fmtNum(inspect?.total_params)} params ·{' '}
-                    {valid ? <span className="ok">valid</span> : <span className="bad">{draft.blocks.length ? 'invalid — fix in builder' : 'empty'}</span>}
+                    {valid ? <span className="ok">valid</span> : <span className="bad">{draft.blocks.length ? 'invalid: fix in builder' : 'empty'}</span>}
                   </div>
                 </div>
               </div>
@@ -134,12 +135,12 @@ export function Train() {
                 </label>
                 {access.has('datasets') && <label className="field">
                   <span className="lbl">Training subset</span>
-                  <input type="number" min={1} placeholder={`all ${fmtNum(dataset?.train_size)}`} value={draft.train_subset ?? ''}
-                    onChange={(e) => setDraft((d) => ({ ...d, train_subset: e.target.value ? parseInt(e.target.value, 10) : null }), { undoable: false })} />
+                  <NumInput int min={1} placeholder={`all ${fmtNum(dataset?.train_size)}`} value={draft.train_subset}
+                    onChange={(n) => setDraft((d) => ({ ...d, train_subset: n }), { undoable: false })} />
                 </label>}
                 <span className="help full">{dataset?.description}</span>
               </div>
-              {(access.has('config.io') || access.has('train.resume')) && <PreviousRuns runs={runs} onLoad={async (id) => { const r = await api.run(id); loadConfig({ ...r.config, name: r.config.name }); toast(`Loaded config of “${r.name}” — press Train to retrain from scratch`, 'ok') }} />}
+              {(access.has('config.io') || access.has('train.resume')) && <PreviousRuns runs={runs} onLoad={async (id) => { const r = await api.run(id); loadConfig({ ...r.config, name: r.config.name }); toast(`Loaded config of “${r.name}”: press Train to retrain from scratch`, 'ok') }} />}
             </div>
           </div>
 
@@ -180,7 +181,7 @@ export function Train() {
 
           <div className="row">
             {running ? (
-              <button className="big danger" onClick={stop}>■ Stop</button>
+              <button className="big danger" onClick={stop}>{session?.kind === 'train' ? '⏸ Pause' : '■ Stop'}</button>
             ) : (
               <button className="big primary" onClick={start} disabled={!valid || starting}>
                 {starting ? <><span className="spinner" /> Checking memory…</> : override === probeKey + t.batch_size ? '▶ Train anyway' : useOptuna ? `▶ Run Optuna (${optuna?.n_trials} trials)` : '▶ Train'}
@@ -227,10 +228,10 @@ function OptunaPanel({ enabled, setEnabled, opts, setOpts, hps, reset }: {
         <div className="panel-body col" style={{ gap: 12 }}>
           <div className="hp-grid">
             <label className="field"><span className="lbl">Trials</span>
-              <input type="number" min={1} max={500} value={opts.n_trials} onChange={(e) => setOpts({ ...opts, n_trials: parseInt(e.target.value, 10) || 1 })} /></label>
+              <NumInput int min={1} max={500} value={opts.n_trials} emptyValue={10} onChange={(n) => setOpts({ ...opts, n_trials: n ?? 10 })} /></label>
             <label className="field"><span className="lbl">Epochs per trial</span>
-              <input type="number" min={1} max={100} value={opts.epochs} onChange={(e) => setOpts({ ...opts, epochs: parseInt(e.target.value, 10) || 1 })} /></label>
-            <label className="field"><span className="lbl">Optimise</span>
+              <NumInput int min={1} max={100} value={opts.epochs} emptyValue={2} onChange={(n) => setOpts({ ...opts, epochs: n ?? 2 })} /></label>
+            <label className="field"><span className="lbl">Optimize</span>
               <select value={opts.metric} onChange={(e) => setOpts({ ...opts, metric: e.target.value as OptunaOpts['metric'] })}>
                 <option value="val_acc">max validation accuracy</option>
                 <option value="val_loss">min validation loss</option>
@@ -250,9 +251,9 @@ function OptunaPanel({ enabled, setEnabled, opts, setOpts, hps, reset }: {
                     <ChoicesInput disabled={!s.enabled} choices={s.choices ?? []} onChange={(choices) => set(k, { ...s, choices })} />
                   ) : (
                     <div className="range-inputs">
-                      <input type="number" step="any" disabled={!s.enabled} value={s.low} onChange={(e) => set(k, { ...s, low: parseFloat(e.target.value) })} />
+                      <NumInput disabled={!s.enabled} value={s.low} emptyValue={s.low ?? 0} onChange={(n) => set(k, { ...s, low: n ?? 0 })} />
                       <span className="faint">to</span>
-                      <input type="number" step="any" disabled={!s.enabled} value={s.high} onChange={(e) => set(k, { ...s, high: parseFloat(e.target.value) })} />
+                      <NumInput disabled={!s.enabled} value={s.high} emptyValue={s.high ?? 1} onChange={(n) => set(k, { ...s, high: n ?? 1 })} />
                       <label className="row tiny muted" title="Sample on a log scale"><input type="checkbox" disabled={!s.enabled} checked={!!s.log} onChange={(e) => set(k, { ...s, log: e.target.checked })} />log</label>
                     </div>
                   )}
@@ -275,12 +276,26 @@ function ChoicesInput({ choices, onChange, disabled }: { choices: unknown[]; onC
 }
 
 function ProbeTable({ probe, current, onPick }: { probe: ProbeResult; current: number; onPick: (b: number) => void }) {
+  const [min, setMin] = useState(false)
+  if (min) {
+    return (
+      <div className="card row small" style={{ marginTop: 12, padding: '8px 12px' }}>
+        <span className="grow">
+          <b>Memory check</b>: largest batch that fits is <b>{probe.largest_fitting ?? 'none'}</b>
+          {probe.requested_fits === false && <span className="bad"> · {probe.requested} does not fit</span>}
+        </span>
+        <button className="ghost sm" title="Show the full table" onClick={() => setMin(false)}>＋</button>
+      </div>
+    )
+  }
   return (
     <div className="card" style={{ marginTop: 12, padding: 0 }}>
       <div style={{ padding: '10px 12px' }} className="small">
-        <b>Memory check on {probe.device}</b>: budget {fmtNum(Math.round(probe.budget_mb))} MB ({probe.budget_label}). Weights + grads + optimizer state ≈ {probe.fixed_mb.toFixed(1)} MB;
+        <button className="ghost sm" style={{ float: 'right', marginLeft: 8 }} title="Minimize" onClick={() => setMin(true)}>－</button>
+        <b>Memory check on {probe.device}</b>{probe.train_examples ? <> (epoch times are for {fmtNum(probe.train_examples)} examples)</> : null}: budget {fmtNum(Math.round(probe.budget_mb))} MB ({probe.budget_label}). Weights + grads + optimizer state ≈ {probe.fixed_mb.toFixed(1)} MB;
         activations ≈ {probe.activation_kb_per_sample.toFixed(0)} KB per example.
         {probe.requested_fits === false && <div className="bad" style={{ marginTop: 4 }}>Your batch size of {probe.requested} does not fit.</div>}
+        {probe.note && <div className="warn" style={{ marginTop: 4 }}>Some sizes are estimates only: {probe.note}.</div>}
         {probe.largest_fitting && <div style={{ marginTop: 4 }}>Largest that fits: <b>{probe.largest_fitting}</b>{probe.fastest && <> · highest throughput: <b>{probe.fastest}</b></>}. Click a row to use it.</div>}
       </div>
       <table className="tbl">
@@ -291,8 +306,8 @@ function ProbeTable({ probe, current, onPick }: { probe: ProbeResult; current: n
               <td className="mono">{r.batch_size}</td>
               <td>{r.fits ? <span className="ok">✓ {r.tested ? 'tested' : 'est.'}</span> : <span className="bad" title={r.reason}>✗ {r.reason}</span>}</td>
               <td className="num">{(r.measured_mb ?? r.estimated_mb).toFixed(0)} MB</td>
-              <td className="num">{r.step_ms ? `${r.step_ms.toFixed(0)} ms` : '—'}</td>
-              <td className="num">{r.epoch_s ? fmtDur(r.epoch_s) : '—'}</td>
+              <td className="num">{r.step_ms ? `${r.step_ms.toFixed(0)} ms` : '-'}</td>
+              <td className="num">{r.epoch_s ? fmtDur(r.epoch_s) : '-'}</td>
             </tr>
           ))}
         </tbody>
@@ -310,7 +325,11 @@ function PreviousRuns({ runs, onLoad }: { runs: RunRow[]; onLoad: (id: string) =
   const [epochs, setEpochs] = useState(0)
   const run = runs.find((r) => r.id === pick)
   useEffect(() => {
-    if (run) setEpochs((run.summary.epochs_done ?? 0) + Math.max(1, Math.ceil((run.training.epochs as number) / 2)))
+    if (!run) return
+    // A paused run resumes to its own target; a finished one gets some extra epochs by default.
+    const target = run.training.epochs as number
+    const done = run.summary.epochs_done ?? 0
+    setEpochs(done < target ? target : done + Math.max(1, Math.ceil(target / 2)))
   }, [run])
   if (!runs.length) return null
   return (
@@ -337,7 +356,7 @@ function PreviousRuns({ runs, onLoad }: { runs: RunRow[]; onLoad: (id: string) =
                   toast(`Resuming “${run.name}” from epoch ${run.summary.epochs_done}`, 'ok')
                 } catch (e) { toast((e as Error).message, 'error') }
               }}>Resume checkpoint to</button>
-              <input type="number" style={{ width: 64 }} min={(run.summary.epochs_done ?? 0) + 1} value={epochs} onChange={(e) => setEpochs(parseInt(e.target.value, 10))} />
+              <NumInput int style={{ width: 64 }} min={(run.summary.epochs_done ?? 0) + 1} value={epochs} emptyValue={epochs} onChange={(n) => setEpochs(n ?? epochs)} />
               <span className="small muted">epochs</span>
             </>
           )}
@@ -348,13 +367,15 @@ function PreviousRuns({ runs, onLoad }: { runs: RunRow[]; onLoad: (id: string) =
 }
 
 function LivePanel({ task }: { task?: string }) {
-  const { session, clearSession, setTab } = useStore()
+  const { session, clearSession, setTab, attachJob, toast } = useStore()
   const [now, setNow] = useState(Date.now())
+  const [resuming, setResuming] = useState(false)
   useEffect(() => {
     if (session?.status !== 'running') return
+    setNow(Date.now())
     const h = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(h)
-  }, [session?.status])
+  }, [session?.status, session?.jobId])
 
   if (!session) {
     return (
@@ -367,9 +388,24 @@ function LivePanel({ task }: { task?: string }) {
   const lastStep = session.steps[session.steps.length - 1]
   const lastEp = session.epochPts[session.epochPts.length - 1]
   const progress = session.totalSteps && lastStep ? Math.min(1, lastStep.step / session.totalSteps) : 0
-  const elapsed = (now - session.startedAt) / 1000
-  const firstStep = session.steps[0]?.step ?? 0
-  const rate = lastStep && elapsed > 2 ? (lastStep.step - firstStep) / elapsed : 0
+  const running = session.status === 'running'
+  // While running: time since this session (re)started. Afterwards: the run's total training time.
+  const elapsed = running ? Math.max(0, (now - session.startedAt) / 1000) : (session.summary?.duration ?? 0)
+  const rate = lastStep && running && elapsed > 2 ? (lastStep.step - session.baseStep) / elapsed : 0
+  const paused = session.kind === 'train' && session.status === 'stopped' && !!session.runId
+  const resume = async () => {
+    if (!session.runId) return
+    setResuming(true)
+    try {
+      // epochs: 0 means "the run's own target"
+      const { job } = await api.resume(session.runId, 0)
+      attachJob(job.id, 'train', session.name, session.runId, { ...session.learn, resumed: true })
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setResuming(false)
+    }
+  }
   const eta = rate > 0 && session.totalSteps && lastStep ? (session.totalSteps - lastStep.step) / rate : null
   const bestVal = session.epochPts.length ? Math.max(...session.epochPts.map((e) => e.val_acc)) : null
   const statusCls = session.status === 'running' ? 'accent' : session.status === 'completed' ? 'ok' : session.status === 'failed' ? 'bad' : 'warn'
@@ -382,7 +418,7 @@ function LivePanel({ task }: { task?: string }) {
             {session.name}
             {session.kind === 'tune' && session.currentTrial && <span className="muted"> · trial {session.currentTrial}</span>}
           </h3>
-          <span className={`pill ${statusCls}`}>{session.status === 'running' && <span className="spinner" style={{ width: 10, height: 10 }} />} {session.status}</span>
+          <span className={`pill ${statusCls}`}>{session.status === 'running' && <span className="spinner" style={{ width: 10, height: 10 }} />} {paused ? 'paused' : session.status}</span>
           {session.status !== 'running' && <button className="sm ghost" onClick={clearSession}>Dismiss</button>}
         </div>
         <div className="panel-body col" style={{ gap: 10 }}>
@@ -391,12 +427,23 @@ function LivePanel({ task }: { task?: string }) {
             <span className="spacer" />
             {session.device && <span>{session.device}</span>}
             {session.params != null && <span>· {fmtNum(session.params)} params</span>}
+            {session.trainExamples != null && <span>· {fmtNum(session.trainExamples)} examples</span>}
             {lastStep && <span>· epoch {lastStep.epoch.toFixed(2)} / {session.epochs}</span>}
             <span>· {fmtDur(elapsed)}</span>
             {session.status === 'running' && eta != null && <span>· ~{fmtDur(eta)} left</span>}
           </div>
           <div className="progress"><div style={{ width: `${progress * 100}%` }} /></div>
           {session.error && <div className="error-box">{session.error}</div>}
+          {paused && (
+            <div className="note-box row">
+              <span className="grow">
+                {lastStep
+                  ? <>Paused at epoch {lastStep.epoch.toFixed(2)} of {session.epochs}. Resuming continues from exactly this point, as if it had never stopped.</>
+                  : <>Stopped before the first training step.</>}
+              </span>
+              {lastStep && <button className="primary" disabled={resuming} onClick={resume}>{resuming ? <><span className="spinner" /> Resuming…</> : '▶ Resume'}</button>}
+            </div>
+          )}
         </div>
       </div>
 
@@ -447,7 +494,7 @@ function TrialsTable() {
             <tr key={tr.trial} className={session.best?.trial === tr.trial ? 'selected' : ''}>
               <td className="mono">{tr.trial}{session.best?.trial === tr.trial && ' ★'}</td>
               {keys.map((k) => <td key={k} className="mono small">{fmt(tr.params[k])}</td>)}
-              <td className="num">{tr.value == null ? '—' : pct ? fmtPct(tr.value) : fmtLoss(tr.value)}</td>
+              <td className="num">{tr.value == null ? '-' : pct ? fmtPct(tr.value) : fmtLoss(tr.value)}</td>
               <td><span className={`pill ${tr.state === 'complete' ? 'ok' : tr.state === 'pruned' ? 'warn' : 'bad'}`}>{tr.state}</span></td>
             </tr>
           ))}

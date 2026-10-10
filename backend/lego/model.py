@@ -125,7 +125,7 @@ def build(arch: dict, input_shape, ctx: BuildContext, *, strict: bool = True, ov
             br.params = sum(p.numel() for p in module.parameters())
             ids.append(br.id)
             modules.append(module)
-        except Exception as e:  # noqa: BLE001  — any build error is reported to the user
+        except Exception as e:  # noqa: BLE001  - any build error is reported to the user
             br.error = str(e) or type(e).__name__
             report.ok = False
             report.error = f"Block {len(report.blocks)} ({raw.get('type')}): {br.error}"

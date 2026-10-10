@@ -58,10 +58,10 @@ export function useStartChallenge() {
 // ---------------------------------------------------------------------------
 // Lesson view
 // ---------------------------------------------------------------------------
-export function LessonView({ id, onNavigate }: { id: string; onNavigate?: (id: string) => void }) {
+export function LessonView({ id, onNavigate, inModal }: { id: string; onNavigate?: (id: string) => void; inModal?: boolean }) {
   const lesson = getLesson(id)
-  const { blocks: specs, setDraft, setTab, toast } = useStore()
-  const { progress, access, track, openLesson } = useLearn()
+  const { blocks: specs, setDraft, setTab, tab, toast } = useStore()
+  const { progress, access, track, openLesson, guideView, setGuideView } = useLearn()
   const startChallenge = useStartChallenge()
   const [answer, setAnswer] = useState<number | null>(null)
   useEffect(() => setAnswer(null), [id])
@@ -72,8 +72,12 @@ export function LessonView({ id, onNavigate }: { id: string; onNavigate?: (id: s
   const blockType = blockOfLesson(lesson)
   const spec = blockType ? specs[blockType] : undefined
   const idx = LESSONS.findIndex((l) => l.id === id)
-  const prev = LESSONS[idx - 1]
-  const next = LESSONS[idx + 1]
+  // Only offer neighbors the learner can actually read; a locked one ends the trail here.
+  const prev = LESSONS[idx - 1] && !lessonLock(LESSONS[idx - 1], access) ? LESSONS[idx - 1] : undefined
+  const next = LESSONS[idx + 1] && !lessonLock(LESSONS[idx + 1], access) ? LESSONS[idx + 1] : undefined
+  const pageAction = lesson && typeof lesson.action === 'object' ? lesson.action : null
+  // A "go to page" button is pointless when you are already looking at that page.
+  const showPageAction = !!pageAction && !(pageAction.tab === tab && !inModal && (pageAction.view ?? 'lessons') === guideView)
 
   if (lock) {
     return (
@@ -171,7 +175,7 @@ export function LessonView({ id, onNavigate }: { id: string; onNavigate?: (id: s
           </div>
           {answer !== null && (
             <div className={answer === lesson.quiz.answer ? 'note-box' : 'error-box'} style={{ marginTop: 8 }}>
-              {answer === lesson.quiz.answer ? `Correct! ${lesson.quiz.explain}` : 'Not quite — have another look at the lesson and try again.'}
+              {answer === lesson.quiz.answer ? `Correct! ${lesson.quiz.explain}` : 'Not quite: have another look at the lesson and try again.'}
             </div>
           )}
         </section>
@@ -180,8 +184,8 @@ export function LessonView({ id, onNavigate }: { id: string; onNavigate?: (id: s
       <div className="row wrap lesson-actions">
         {lesson.action === 'challenge' && <button className="primary" onClick={startChallenge}>🧩 Start the challenge</button>}
         {lesson.action === 'addBlock' && spec && access.has('builder') && <button onClick={addBlock}>+ Add {spec.name} to my model</button>}
-        {lesson.action && typeof lesson.action === 'object' && (
-          <button onClick={() => { openLesson(null); setTab((lesson.action as { tab: string }).tab) }}>{(lesson.action as { label: string }).label} →</button>
+        {pageAction && showPageAction && (
+          <button onClick={() => { openLesson(null); if (pageAction.tab === 'guide') setGuideView(pageAction.view ?? 'lessons'); setTab(pageAction.tab) }}>{pageAction.label} →</button>
         )}
         <span className="spacer" />
         {!read ? (
@@ -194,6 +198,7 @@ export function LessonView({ id, onNavigate }: { id: string; onNavigate?: (id: s
           {prev ? <button className="ghost" onClick={() => onNavigate(prev.id)}>← {prev.title}</button> : <span />}
           <span className="spacer" />
           {next && <button className="ghost" onClick={() => onNavigate(next.id)}>{next.title} →</button>}
+          {!next && inModal && <button onClick={() => openLesson(null)}>Close and try it out ✓</button>}
         </div>
       )}
     </article>
@@ -213,7 +218,7 @@ export function LessonModal() {
           <span className="spacer" />
           <button className="ghost" onClick={() => openLesson(null)}>✕</button>
         </div>
-        <div className="modal-body"><LessonView id={id} onNavigate={setId} /></div>
+        <div className="modal-body"><LessonView id={id} onNavigate={setId} inModal /></div>
       </div>
     </div>
   )
@@ -309,7 +314,7 @@ export function SkillTree() {
           </div>
         ) : (
           <div className="panel-body small muted">
-            Click a skill to see what it unlocks. Each costs one skill point; you earn 2 per level from level 6. Branches roughly follow history — older ideas first — so each new block shows what the previous ones were missing.
+            Click a skill to see what it unlocks. Each costs one skill point; you earn 2 per level from level 6. Branches roughly follow history, older ideas first, so each new block shows what the previous ones were missing.
           </div>
         )}
       </aside>
@@ -355,11 +360,10 @@ export function Achievements() {
 // The page
 // ---------------------------------------------------------------------------
 export function Guidebook() {
-  const { access, progress } = useLearn()
-  const [view, setView] = useState<'lessons' | 'skills' | 'achievements'>(() => (sessionStorage.getItem('lego-ai/guide-view') as 'lessons') || 'lessons')
+  const { access, progress, guideView: view, setGuideView: setView } = useLearn()
   const [id, setId] = useState(() => sessionStorage.getItem('lego-ai/guide-lesson') || 'start.welcome')
   const [filter, setFilter] = useState('')
-  useEffect(() => { sessionStorage.setItem('lego-ai/guide-view', view); sessionStorage.setItem('lego-ai/guide-lesson', id) }, [view, id])
+  useEffect(() => sessionStorage.setItem('lego-ai/guide-lesson', id), [id])
   const bySection = useMemo(() => SECTIONS.map((s) => ({
     ...s, lessons: LESSONS.filter((l) => l.section === s.id && (!filter || l.title.toLowerCase().includes(filter.toLowerCase()))),
   })), [filter])
@@ -368,10 +372,10 @@ export function Guidebook() {
   return (
     <div className="guide-layout">
       <aside className="guide-nav" data-tour="guide-nav">
-        <div className="seg" style={{ width: '100%', marginBottom: 12 }}>
+        <div className="seg guide-tabs" style={{ width: '100%', marginBottom: 12 }}>
           <button className={view === 'lessons' ? 'on' : ''} onClick={() => setView('lessons')}>📖 Lessons</button>
           <button className={view === 'skills' ? 'on' : ''} onClick={() => setView('skills')} data-tour="skilltree">🌳 Skills</button>
-          <button className={view === 'achievements' ? 'on' : ''} onClick={() => setView('achievements')}>🏆</button>
+          <button className={view === 'achievements' ? 'on' : ''} onClick={() => setView('achievements')}>🏆 Achievements</button>
         </div>
         <input placeholder="Search lessons…" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: '100%', marginBottom: 10 }} />
         <div className="tiny muted" style={{ marginBottom: 8 }}>{readCount} of {LESSONS.length} lessons read</div>

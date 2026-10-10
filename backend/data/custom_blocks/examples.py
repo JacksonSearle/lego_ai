@@ -1,4 +1,4 @@
-"""Example custom blocks. Edit freely and press Save — they appear in the
+"""Example custom blocks. Edit freely and press Save: they appear in the
 builder palette under "Custom".
 
 Rules:

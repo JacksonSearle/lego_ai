@@ -82,7 +82,7 @@ def exec_source(source: str, filename: str) -> list[BlockSpec]:
     mod = types.ModuleType(f"lego_custom_{_slug(filename)}")
     mod.__file__ = filename
     code = compile(source, filename, "exec")
-    exec(code, mod.__dict__)  # noqa: S102 — the user runs their own code locally, by design
+    exec(code, mod.__dict__)  # noqa: S102 - the user runs their own code locally, by design
     specs = []
     for attr, obj in vars(mod).items():
         meta = getattr(obj, _MARK, None)
@@ -218,7 +218,7 @@ def build_registry_overlay(custom_blocks: dict[str, dict]) -> dict[str, BlockSpe
     return overlay
 
 
-EXAMPLE = '''"""Example custom blocks. Edit freely and press Save — they appear in the
+EXAMPLE = '''"""Example custom blocks. Edit freely and press Save: they appear in the
 builder palette under "Custom".
 
 Rules:
