@@ -6,6 +6,7 @@ import { LearnProvider, useLearn } from './learn/LearnContext'
 import { DemoPlayer } from './learn/Demo'
 import { LevelUpModal, Onboarding, OverviewTour, ProfileBar, Rewards, Spotlight } from './learn/Overlay'
 import { Builder } from './pages/Builder'
+import { Explore } from './pages/Explore'
 import { Lab } from './pages/Lab'
 import { Leaderboard } from './pages/Leaderboard'
 import { Train } from './pages/Train'
@@ -19,6 +20,7 @@ const TABS: { id: string; label: string; feature?: Feature }[] = [
   { id: 'build', label: 'Build', feature: 'builder' },
   { id: 'train', label: 'Train', feature: 'train.page' },
   { id: 'leaderboard', label: 'Leaderboard', feature: 'leaderboard.page' },
+  { id: 'explore', label: 'Explore' },
   { id: 'custom', label: 'Custom Blocks', feature: 'custom.page' },
   { id: 'guide', label: '📖 Guidebook' },
 ]
@@ -65,6 +67,7 @@ function Shell() {
       build: <Builder />,
       train: <Train />,
       leaderboard: <Leaderboard />,
+      explore: <Explore />,
       custom: <CustomBlocks />,
       guide: <Guidebook />,
     }[tab] ?? <Lab />

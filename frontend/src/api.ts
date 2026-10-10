@@ -1,5 +1,5 @@
 import type {
-  Predictions, BlockSpec, DatasetInfo, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
+  Predictions, Samples, Evaluation, InputPrediction, Generation, BlockSpec, DatasetInfo, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -51,7 +51,15 @@ export const api = {
     req<{ config: RunConfig; notes: string[]; env_diffs: string[]; ok: boolean; error: string | null }>('POST', '/api/config/import', cfg),
 
   runs: () => req<RunRow[]>('GET', '/api/runs'),
-  predict: (id: string, n = 12, seed = 0) => req<Predictions>('POST', `/api/runs/${id}/predict`, { n, seed }),
+  predict: (id: string, n = 12, seed = 0, split = 'test') => req<Predictions>('POST', `/api/runs/${id}/predict`, { n, seed, split }),
+  samples: (dataset: string, o: { n?: number; split?: string; seed?: number; label?: number | null }) =>
+    req<Samples>('GET', `/api/datasets/${dataset}/samples?n=${o.n ?? 24}&split=${o.split ?? 'train'}&seed=${o.seed ?? 0}${o.label != null ? `&label=${o.label}` : ''}`),
+  evaluate: (id: string, o: { split?: string; limit?: number; true?: number | null; pred?: number | null }) =>
+    req<Evaluation>('POST', `/api/runs/${id}/evaluate`, o),
+  predictInput: (id: string, input: { image?: number[]; text?: string; vector?: number[] }) =>
+    req<InputPrediction>('POST', `/api/runs/${id}/predict-input`, input),
+  generate: (id: string, o: { prompt: string; max_new?: number; temperature?: number; seed?: number }) =>
+    req<Generation>('POST', `/api/runs/${id}/generate`, o),
   run: (id: string) => req<RunDetail>('GET', `/api/runs/${id}`),
   renameRun: (id: string, name: string) => req('PATCH', `/api/runs/${id}`, { name }),
   deleteRun: (id: string) => req('DELETE', `/api/runs/${id}`),

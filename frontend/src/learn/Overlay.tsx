@@ -416,6 +416,7 @@ const TOUR = [
   { tab: 'train', spot: 'hyperparams', title: 'Training', text: 'All hyperparameters, a batch-size memory checker, resume from checkpoints, and live loss/accuracy charts.' },
   { tab: 'train', spot: 'optuna', title: 'Optuna', text: 'Switch on to give ranges instead of values and run a pruned TPE search. Every trial is a reproducible run.' },
   { tab: 'leaderboard', spot: 'leaderboard', title: 'Leaderboard', text: 'Rank runs, inspect curves and configs, retrain from scratch (bit-exact reproduction check), resume, download weights.' },
+  { tab: 'explore', spot: 'explore-tabs', title: 'Explore', text: 'Browse any dataset, see a model’s confusion matrix and most confident mistakes, test it on your own drawing, photo or text, and chat with text models.' },
   { tab: 'custom', spot: 'custom-new', title: 'Custom blocks', text: 'Write nn.Modules with @lego_block and they join the palette. Their source is embedded in run configs.' },
   { tab: 'guide', spot: 'guide-nav', title: 'Guidebook', text: 'Lessons for every page, action and block: animations, annotated PyTorch code, papers. Each page’s “?” button jumps to its guide.' },
 ]

@@ -230,10 +230,13 @@ const best = (ds: string, x: number) => (s: Stats) => (s.best[ds] ?? 0) >= x
 export const QUESTS: Quest[] = [
   // Level 1 - the Lab
   { id: 'q.mnist', level: 1, title: 'Meet MNIST', how: 'Read the short intro to the dataset of handwritten digits.', xp: 20, done: read('start.mnist'), go: { lesson: 'start.mnist' } },
+  { id: 'q.data', level: 1, title: 'Look before you train', how: 'Open the Explore tab and browse some real examples from the dataset.', xp: 20, done: f('sawData'), go: { tab: 'explore' } },
   { id: 'q.first', level: 1, title: 'Train your first model', how: 'In the Lab, pick a size for the hidden layer. Training starts by itself.', xp: 50, done: (s) => s.runs >= 1, go: { tab: 'lab', spot: 'lab-widths' } },
   { id: 'q.widths', level: 1, title: 'Too small? Too big?', how: 'Try at least 3 different sizes and compare their accuracy.', xp: 40, done: (s) => s.widths.length >= 3, go: { tab: 'lab', spot: 'lab-widths' } },
   { id: 'q.90', level: 1, title: 'Read 9 out of 10 digits', how: 'Reach 90% validation accuracy on MNIST.', xp: 30, done: best('mnist', 0.9), go: { tab: 'lab', spot: 'lab-widths' } },
   // Level 2 - depth
+  { id: 'q.mistakes', level: 2, title: 'Where does it go wrong?', how: 'In Explore → Test a model, look at your model’s most confident mistakes.', xp: 30, done: f('mistakes'), go: { tab: 'explore', spot: 'explore-tabs' } },
+  { id: 'q.own', level: 2, title: 'Your own handwriting', how: 'In Explore → Test a model, draw a digit yourself and see if your model can read it.', xp: 40, done: f('ownInput'), go: { tab: 'explore', spot: 'explore-tabs' } },
   { id: 'q.stacking', level: 2, title: 'Learn about layers', how: 'Read “Layers & depth” in the guidebook.', xp: 20, done: read('start.layers'), go: { lesson: 'start.layers' } },
   { id: 'q.two', level: 2, title: 'Stack ’em', how: 'Train a model with 2 or more hidden layers.', xp: 40, done: (s) => s.maxLayers >= 2, go: { tab: 'lab', spot: 'lab-layers' } },
   { id: 'q.four', level: 2, title: 'Go deep', how: 'Train a model with 4 hidden layers.', xp: 40, done: (s) => s.maxLayers >= 4, go: { tab: 'lab', spot: 'lab-layers' } },
@@ -341,6 +344,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'a.scholar', icon: '🎓', title: 'Scholar', desc: 'Read 30 guidebook lessons.', xp: 200, done: (s) => s.lessons.length >= 30 },
   { id: 'a.quiz', icon: '❓', title: 'Quiz Whiz', desc: 'Answer 5 quizzes correctly.', xp: 75, done: (s) => s.quizzes.length >= 5 },
   { id: 'a.collector', icon: '🌳', title: 'Collector', desc: 'Unlock 8 skills in the skill tree.', xp: 100, done: (_s, p) => p.skills.length >= 8 },
+  { id: 'a.detective', icon: '🕵️', title: 'Detective', desc: 'Inspect a model’s mistakes in Explore.', xp: 50, done: f('mistakes') },
+  { id: 'a.handwriting', icon: '✍️', title: 'In Your Own Hand', desc: 'Test a model on something you drew, uploaded or typed yourself.', xp: 75, done: f('ownInput') },
+  { id: 'a.chat', icon: '💬', title: 'Small Talk', desc: 'Chat with a text model you trained.', xp: 100, done: f('chat') },
   { id: 'a.seeds', icon: '🎲', title: 'Statistician', desc: 'Train a model with several seeds to measure how much luck is involved.', xp: 100, done: f('seeds') },
   { id: 'a.artist', icon: '🎨', title: 'Function Artist', desc: 'Train a model with an activation function you drew yourself.', xp: 75, done: (s) => s.blocksTrained.includes('drawn_activation') },
   { id: 'a.regular', icon: '📋', title: 'Regular', desc: 'Complete 10 training runs.', xp: 75, done: (s) => s.runs >= 10 },

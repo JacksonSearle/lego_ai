@@ -170,6 +170,20 @@ export const LESSONS: Lesson[] = [
     </>,
   },
   {
+    id: 'app.explore', section: 'app', title: 'Explore: look at the data and test your models', summary: 'See what the model sees, find its mistakes, try your own input, chat.', unlock: { level: 1 }, action: { tab: 'explore', label: 'Open Explore' },
+    body: <>
+      <P>Accuracy is one number. To understand a model you have to look at examples. The <b>Explore</b> tab has three parts:</P>
+      <ul>
+        <li><b>Look at the data.</b> Browse random examples from any dataset, from the training, validation or test part. Click a class to see only that class. Always do this before training: you will spot odd, ambiguous and even mislabeled examples.</li>
+        <li><b>Test a model.</b> Pick any model you trained. You get its accuracy for each class, a <b>confusion matrix</b> (which classes it mixes up: rows are the truth, columns are its answers), and its <b>most confident mistakes</b>. Click a cell or a class to see those examples. Below that you can <b>try your own input</b>: draw a digit, drop in a photo, or type a sentence, and see the model’s answer with its confidence for every class.</li>
+        <li><b>Chat.</b> Talk to a text model trained on Tiny Shakespeare. It continues whatever you type in the style it learned. You can keep several chats, switch models in the middle of one, and adjust how adventurous its writing is.</li>
+      </ul>
+      <Tip>When a model is very sure and wrong, ask why. Is the example unusual? Is the label wrong? Does it look like another class? Mistakes tell you what to change next: more data, a different block, or longer training.</Tip>
+      <P><b>About your own images.</b> A model only knows what its training data looked like. MNIST digits are white on black, centered and 28×28 pixels, so your drawing is converted to exactly that. A photo of a digit on lined paper may still fool it: that gap between training data and the real world is one of the central problems in machine learning.</P>
+    </>,
+    quiz: { q: 'In a confusion matrix, what does a bright cell in row “4”, column “9” mean?', options: ['The model is good at 4s and 9s', 'Many real 4s were guessed as 9', 'Many real 9s were guessed as 4', 'There are few 4s in the data'], answer: 1, explain: 'Rows are the true class, columns are the model’s answer: real 4s that it called 9.' },
+  },
+  {
     id: 'app.guidebook', section: 'app', title: 'The Guidebook & skill tree', summary: 'Where everything you unlock is explained.', unlock: { level: 1 }, action: { tab: 'guide', label: 'Open Guidebook' },
     body: <>
       <P>The Guidebook holds a lesson for every concept, page and block. Locked lessons show what unlocks them. The <b>Skill Tree</b> tab is where you spend skill points (two per level from level 6) to unlock new blocks. Image blocks and text blocks form two branches, roughly in the order they were invented. <b>Achievements</b> (badges and what earns them) live in your profile: click your avatar or the XP bar at the top right.</P>

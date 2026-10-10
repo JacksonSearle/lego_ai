@@ -71,6 +71,7 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
 | **Build** | Drag blocks from the palette onto a stack that flows **up** from the input (bottom, with its shape) to the output (top, with the dataset's target shape). Shapes are inferred after every edit and shown on the arrows. Click a block for its parameters, with help text and defaults. Use **Repeat** to stack a block N times (shown as ×N beside it). Templates give a proven starting point per dataset, or you can start from scratch. Undo/redo, import/export. |
 | **Train** | Hyperparameters (optimizer, LR, scheduler, warm-up, weight decay, dropout override, label smoothing, grad clipping, loss, augmentation, seed, device). **Check what fits in memory** tests a range of batch sizes. Pressing Train checks yours first and suggests alternatives if it won't fit. Turn on **Optuna** to give ranges instead of values. Live loss/accuracy/LR charts. Resume any checkpoint, or load a previous run's config to retrain from scratch. |
 | **Leaderboard** | All runs ranked by validation accuracy (or test acc, loss, params, time), filterable by dataset. Click a run for its curves, architecture, hyperparameters and environment, and to open it in the builder, **retrain from scratch** (marked ✓ reproduced when it matches exactly), resume, download the config, or download the weights. |
+| **Explore** | *Look at the data*: browse random examples from any dataset and split, filter by class. *Test a model*: per-class accuracy, a clickable confusion matrix, its most confident mistakes, and your own input (draw a digit, drop in a photo, type a sentence). *Chat*: talk to text models trained on Tiny Shakespeare, with multiple saved chats and model switching. |
 | **Custom Blocks** | Write blocks in Python (CodeMirror editor). Save, and they show up in the palette like built-ins. |
 
 ## More features
@@ -188,6 +189,7 @@ backend/lego/
   datasets.py     dataset loading/caching
   config.py       run-config schema, hyperparameter specs, environment capture
   train.py        training loop, checkpoints, resume, reproduction check
+  predict.py      dataset samples, evaluation, mistakes, user input, text generation
   rng.py          per-run random streams
   batchsize.py    memory probe
   tuner.py        Optuna studies
@@ -198,7 +200,7 @@ backend/lego/
   runs.py, jobs.py   storage, background jobs + event streams
   server.py       FastAPI app
 frontend/src/
-  pages/          Lab, Builder, Train, Leaderboard, CustomBlocks
+  pages/          Lab, Builder, Train, Leaderboard, Explore, CustomBlocks
   learn/          curriculum, lessons, diagrams, guidebook, teacher demo
   components/     Brick, ParamField, LineChart, LiveCharts, ArchView
   store.tsx       app state, undo/redo, live job stream

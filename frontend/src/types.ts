@@ -271,7 +271,9 @@ export interface Prediction {
   image?: number[]
   shape?: number[]
   text?: string
-  label: number
+  vector?: number[]
+  index?: number
+  label: number | string
   pred: number
   top: { cls: number; p: number }[]
 }
@@ -283,3 +285,40 @@ export interface Predictions {
   prompt?: string
   generated?: string
 }
+
+/** Random examples from a dataset (no model involved). */
+export interface Samples {
+  dataset: string
+  kind: 'image' | 'tokens' | 'vector'
+  class_names: string[]
+  examples: Omit<Prediction, 'pred' | 'top'>[]
+  total: number
+  class_counts: number[] | null
+  split: string
+}
+
+/** A model scored over a split: where it is right, and where and how it is wrong. */
+export interface Evaluation {
+  kind: string
+  class_names: string[]
+  split: string
+  n: number
+  total: number
+  accuracy: number
+  wrong_total: number
+  confusion: number[][]
+  per_class: { cls: number; n: number; acc: number | null }[]
+  examples: Prediction[]
+  selected: number
+  unsure: Prediction[]
+}
+
+export interface InputPrediction {
+  kind: string
+  class_names: string[]
+  input: { image?: number[]; shape?: number[]; text?: string; unknown?: string[]; truncated?: boolean; vector?: number[] }
+  pred: number
+  probs: number[]
+}
+
+export interface Generation { text: string; seq_len: number; context: string; dropped: string[] }

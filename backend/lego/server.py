@@ -55,11 +55,13 @@ def list_datasets():
 
 
 @app.get("/api/datasets/{dataset_id}/samples")
-def dataset_samples(dataset_id: str, n: int = 24, split: str = "test", seed: int = 0):
+def dataset_samples(dataset_id: str, n: int = 24, split: str = "test", seed: int = 0, label: int | None = None, seq_len: int | None = None):
     try:
-        return predict.samples(dataset_id, min(n, 64), split, seed)
+        return predict.samples(dataset_id, min(n, 96), split, seed, label, seq_len)
     except KeyError as e:
         _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
 
 
 @app.get("/api/templates/{dataset_id}")
@@ -275,13 +277,44 @@ def get_run(run_id: str):
     return {**r, "metrics": runs.metrics(run_id), "has_checkpoint": runs.checkpoint_path(run_id).exists()}
 
 
-@app.post("/api/runs/{run_id}/predict")
-def predict_run(run_id: str, body: dict = Body(default={})):
-    """Run the trained model on a few test examples (for showing beginners what it guessed)."""
+def _model_call(fn):
+    """Run a model-inspection function, turning its expected failures into clean HTTP errors."""
     try:
-        return predict.predict(run_id, n=min(int(body.get("n", 12)), 48), seed=int(body.get("seed", 0)))
+        return fn()
     except (KeyError, FileNotFoundError) as e:
         _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
+
+
+@app.post("/api/runs/{run_id}/predict")
+def predict_run(run_id: str, body: dict = Body(default={})):
+    """Run the trained model on a few random examples."""
+    return _model_call(lambda: predict.predict(run_id, n=min(int(body.get("n", 12)), 96), seed=int(body.get("seed", 0)), split=body.get("split", "test")))
+
+
+@app.post("/api/runs/{run_id}/evaluate")
+def evaluate_run(run_id: str, body: dict = Body(default={})):
+    """Score the model over (part of) a split: confusion matrix and its most confident mistakes."""
+    return _model_call(lambda: predict.evaluate(
+        run_id, split=body.get("split", "test"), limit=int(body.get("limit", 2000) or 0),
+        true=body.get("true"), pred=body.get("pred"), show=min(int(body.get("show", 48)), 96),
+    ))
+
+
+@app.post("/api/runs/{run_id}/predict-input")
+def predict_input(run_id: str, body: dict = Body(...)):
+    """The model's answer for something the user drew, uploaded or typed."""
+    return _model_call(lambda: predict.predict_input(run_id, image=body.get("image"), text=body.get("text"), vector=body.get("vector")))
+
+
+@app.post("/api/runs/{run_id}/generate")
+def generate_text(run_id: str, body: dict = Body(...)):
+    """Continue a prompt with a language model."""
+    return _model_call(lambda: predict.generate(
+        run_id, str(body.get("prompt", "")), max_new=int(body.get("max_new", 200)),
+        temperature=float(body.get("temperature", 0.8)), seed=int(body.get("seed", 0)), top_k=body.get("top_k"),
+    ))
 
 
 @app.patch("/api/runs/{run_id}")

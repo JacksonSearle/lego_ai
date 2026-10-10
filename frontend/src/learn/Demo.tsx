@@ -173,6 +173,11 @@ const STEPS: Step[] = [
     run: (c) => { c.level(8, ['conv', 'pooling', 'norms']); c.tab('leaderboard') },
   },
   {
+    title: 'Looking inside the model', seconds: 40,
+    say: 'Accuracy is only a number. In Explore, students see which digits their model confuses, its most confident mistakes, and can draw a digit themselves to test it. Looking at examples is how real practitioners debug models.',
+    run: (c) => { sessionStorage.setItem('lego-ai/explore-tab', 'model'); c.tab('explore') },
+  },
+  {
     title: 'Text models', seconds: 35,
     say: 'The text branch works the same way. This is a character-level LSTM for Shakespeare: an embedding, a recurrent layer and an output head. Later the student can swap the LSTM for transformer blocks and build a miniature GPT.',
     run: (c) => {
