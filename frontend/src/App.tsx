@@ -1,6 +1,12 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
+import type { Feature } from './learn/curriculum'
+import { featureLevel } from './learn/engine'
+import { Guidebook, LessonModal } from './learn/Guidebook'
+import { LearnProvider, useLearn } from './learn/LearnContext'
+import { LevelUpModal, Onboarding, OverviewTour, ProfileBar, Rewards, Spotlight, Tutor } from './learn/Overlay'
 import { Builder } from './pages/Builder'
 import { History } from './pages/History'
+import { Lab } from './pages/Lab'
 import { Leaderboard } from './pages/Leaderboard'
 import { Train } from './pages/Train'
 import { StoreProvider, useStore } from './store'
@@ -8,17 +14,61 @@ import { StoreProvider, useStore } from './store'
 // The code editor is heavy; only load it when the Custom Blocks tab is opened.
 const CustomBlocks = lazy(() => import('./pages/CustomBlocks').then((m) => ({ default: m.CustomBlocks })))
 
-const TABS = [
-  { id: 'build', label: 'Build' },
-  { id: 'train', label: 'Train' },
-  { id: 'leaderboard', label: 'Leaderboard' },
-  { id: 'custom', label: 'Custom Blocks' },
-  { id: 'history', label: 'History of AI' },
+const TABS: { id: string; label: string; feature?: Feature; hideWhen?: Feature }[] = [
+  { id: 'lab', label: '🧪 Lab', feature: 'lab' },
+  { id: 'build', label: 'Build', feature: 'builder' },
+  { id: 'train', label: 'Train', feature: 'train.page' },
+  { id: 'leaderboard', label: 'Leaderboard', feature: 'leaderboard.page' },
+  { id: 'custom', label: 'Custom Blocks', feature: 'custom.page' },
+  { id: 'history', label: 'History of AI', feature: 'history.page' },
+  { id: 'guide', label: '📖 Guidebook' },
 ]
 
 function Shell() {
-  const { tab, setTab, session, toasts, meta } = useStore()
-  const page = { build: <Builder />, train: <Train />, leaderboard: <Leaderboard />, custom: <CustomBlocks />, history: <History /> }[tab] ?? <Builder />
+  const { tab, setTab, session, toasts, draft, setDraft, inspect, toast, offline } = useStore()
+  const { access, progress, flag, update, setSpot, ready } = useLearn()
+
+  const visible = TABS.filter((t) => !(t.hideWhen && access.has(t.hideWhen)) && !(access.unlocked && t.id === 'lab'))
+  const allowed = (id: string) => {
+    const t = TABS.find((x) => x.id === id)
+    return !!t && visible.includes(t) && (!t.feature || access.has(t.feature))
+  }
+
+  // Keep the user on a page they can use.
+  useEffect(() => {
+    if (!ready || !progress.mode) return
+    if (!allowed(tab)) setTab(access.has('builder') ? 'build' : 'lab')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, ready, progress.mode, access.level, access.unlocked])
+
+  useEffect(() => {
+    if (ready && progress.mode) flag(`visit:${tab}`)
+  }, [tab, ready, progress.mode, flag])
+
+  // The broken-model challenge is complete once the challenge model becomes valid.
+  useEffect(() => {
+    // The shape check is debounced: only trust a result that describes the current blocks.
+    const current = !!inspect && inspect.blocks.map((b) => b.id).join() === draft.blocks.map((b) => b.id).join()
+    if (progress.challenge === 'active' && draft.origin === 'challenge' && current && inspect?.ok && draft.blocks.length > 0) {
+      update((p) => ({ ...p, challenge: 'done' }))
+      setDraft((d) => ({ ...d, name: 'Repaired model' }), { undoable: false })
+      flag('fixedShapes')
+      setSpot(null)
+      toast('🧩 Fixed! Every block fits and the output is 10 numbers — one per digit. Now train it!', 'ok')
+    }
+  }, [progress.challenge, draft.origin, draft.blocks, inspect, update, flag, setSpot, toast, setDraft])
+
+  const page =
+    {
+      lab: <Lab />,
+      build: <Builder />,
+      train: <Train />,
+      leaderboard: <Leaderboard />,
+      custom: <CustomBlocks />,
+      history: <History />,
+      guide: <Guidebook />,
+    }[tab] ?? <Lab />
+
   return (
     <div className="app">
       <header className="topbar">
@@ -29,32 +79,52 @@ function Shell() {
           Lego AI
         </div>
         <nav className="tabs">
-          {TABS.map((t) => (
-            <button key={t.id} className={`tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
-              {t.label}
-              {t.id === 'train' && session?.status === 'running' && <span className="dot" title="Training in progress" />}
-            </button>
-          ))}
+          {visible.map((t) => {
+            const locked = !!t.feature && !access.has(t.feature)
+            return (
+              <button
+                key={t.id}
+                className={`tab ${tab === t.id ? 'active' : ''} ${locked ? 'locked' : ''}`}
+                onClick={() => !locked && setTab(t.id)}
+                title={locked ? `Unlocks at level ${featureLevel(t.feature!)}` : undefined}
+              >
+                {locked && '🔒 '}{t.label}
+                {t.id === 'train' && session?.status === 'running' && <span className="dot" title="Training in progress" />}
+              </button>
+            )
+          })}
         </nav>
         <span className="spacer" />
-        {meta && (
-          <span className="small faint mono" title={String(meta.environment.platform)}>
-            torch {meta.environment.torch} · {meta.environment.available_devices.join(' / ')}
-          </span>
-        )}
+        <ProfileBar />
       </header>
-      <main className="main"><Suspense fallback={<div className="page"><span className="spinner" /></div>}>{page}</Suspense></main>
+      {offline && (
+        <div className="offline-banner">
+          ⚠️ Can’t reach the Lego AI server, so shape checks and training are paused. Start it with <code>./run.sh</code> in the project folder — this page reconnects automatically.
+        </div>
+      )}
+      <main className="main">
+        <Suspense fallback={<div className="page"><span className="spinner" /></div>}>{ready && progress.mode ? page : <div className="page"><span className="spinner" /></div>}</Suspense>
+      </main>
       <div className="toasts">
         {toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.msg}</div>)}
       </div>
+      <Tutor />
+      <Rewards />
+      <Spotlight />
+      <OverviewTour />
+      <LessonModal />
+      <LevelUpModal />
+      <Onboarding />
     </div>
   )
 }
 
 export default function App() {
   return (
-    <StoreProvider>
-      <Shell />
-    </StoreProvider>
+    <LearnProvider>
+      <StoreProvider>
+        <Shell />
+      </StoreProvider>
+    </LearnProvider>
   )
 }

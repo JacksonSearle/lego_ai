@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import blocks  # noqa: F401  (registers built-ins)
-from . import batchsize, config as cfgmod, custom, datasets, history, jobs, model as modelmod, runs, templates, tuner
+from . import batchsize, config as cfgmod, custom, datasets, history, jobs, model as modelmod, predict, progress, runs, templates, tuner
 from .registry import CATEGORY_ORDER, REGISTRY
 from .train import train_run
 
@@ -52,6 +52,14 @@ def list_blocks():
 @app.get("/api/datasets")
 def list_datasets():
     return [{**d.to_json(), "cached": datasets.is_cached(d.id)} for d in datasets.DATASETS.values()]
+
+
+@app.get("/api/datasets/{dataset_id}/samples")
+def dataset_samples(dataset_id: str, n: int = 24, split: str = "test", seed: int = 0):
+    try:
+        return predict.samples(dataset_id, min(n, 64), split, seed)
+    except KeyError as e:
+        _bad(e, 404)
 
 
 @app.get("/api/templates/{dataset_id}")
@@ -243,6 +251,15 @@ def get_run(run_id: str):
     return {**r, "metrics": runs.metrics(run_id), "has_checkpoint": runs.checkpoint_path(run_id).exists()}
 
 
+@app.post("/api/runs/{run_id}/predict")
+def predict_run(run_id: str, body: dict = Body(default={})):
+    """Run the trained model on a few test examples (for showing beginners what it guessed)."""
+    try:
+        return predict.predict(run_id, n=min(int(body.get("n", 12)), 48), seed=int(body.get("seed", 0)))
+    except (KeyError, FileNotFoundError) as e:
+        _bad(e, 404)
+
+
 @app.patch("/api/runs/{run_id}")
 def rename_run(run_id: str, body: dict = Body(...)):
     r = runs.get(run_id)
@@ -321,6 +338,26 @@ async def job_events(job_id: str, since: int = 0):
             await asyncio.sleep(0.2)
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# Learner progress (guided mode)
+# ---------------------------------------------------------------------------
+@app.get("/api/progress")
+def get_progress():
+    return {"progress": progress.load()}
+
+
+@app.put("/api/progress")
+def put_progress(body: dict = Body(...)):
+    progress.save(body)
+    return {"ok": True}
+
+
+@app.delete("/api/progress")
+def reset_progress():
+    progress.reset()
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

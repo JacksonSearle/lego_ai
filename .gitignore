@@ -10,3 +10,4 @@ backend/data/datasets/
 backend/data/runs/
 backend/data/studies/
 backend/data/history.json
+backend/data/progress.json

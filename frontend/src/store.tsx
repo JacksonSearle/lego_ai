@@ -1,5 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, streamJob } from './api'
+import { BEGINNER_TRAINING, HP_FEATURE } from './learn/curriculum'
+import type { TrainInfo } from './learn/engine'
+import { useLearn } from './learn/LearnContext'
 import type {
   BlockInst, BlockSpec, DatasetInfo, EpochPoint, InspectResult, JobEvent, Meta, RunConfig, StepPoint, Summary, Training,
 } from './types'
@@ -11,6 +14,16 @@ export interface Draft {
   blocks: BlockInst[]
   training: Training
   custom_blocks?: RunConfig['custom_blocks']
+  /** Where the architecture came from, and whether the user has changed it since (for quests). */
+  origin?: 'lab' | 'template' | 'challenge' | 'import' | 'scratch'
+  edited?: boolean
+}
+
+/** Extra facts about a training job that the learning engine needs when it finishes. */
+export interface LearnMeta {
+  built?: boolean
+  width?: string
+  resumed?: boolean
 }
 
 export interface TrialRow {
@@ -41,6 +54,8 @@ export interface Session {
   best: { trial: number; value: number; params: Record<string, unknown>; run_id: string } | null
   metric?: string
   startedAt: number
+  learn?: LearnMeta
+  reported?: boolean
 }
 
 interface Store {
@@ -55,11 +70,14 @@ interface Store {
   canUndo: boolean
   canRedo: boolean
   inspect: InspectResult | null
+  /** True while the backend can't be reached (shape checks and training are unavailable). */
+  offline: boolean
   refreshBlocks: () => Promise<void>
   session: Session | null
-  attachJob: (jobId: string, kind: 'train' | 'tune', name: string, runId?: string | null) => void
+  attachJob: (jobId: string, kind: 'train' | 'tune', name: string, runId?: string | null, learn?: LearnMeta) => void
   clearSession: () => void
   toConfig: () => RunConfig
+  effectiveTraining: (t: Training) => Training
   loadConfig: (cfg: RunConfig) => void
   tab: string
   setTab: (t: string) => void
@@ -134,6 +152,7 @@ function reduce(s: Session, e: JobEvent): Session {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
+  const learn = useLearn()
   const [meta, setMeta] = useState<Meta | null>(null)
   const [blockList, setBlockList] = useState<BlockSpec[]>([])
   const [datasets, setDatasets] = useState<DatasetInfo[]>([])
@@ -145,6 +164,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }))
   const draft = hist.present
   const [inspect, setInspect] = useState<InspectResult | null>(null)
+  const [offline, setOffline] = useState(false)
+  const [retry, setRetry] = useState(0)
   const [session, setSession] = useState<Session | null>(null)
   const [tab, setTab] = useState(() => location.hash.slice(1) || 'build')
   const [toasts, setToasts] = useState<{ id: number; msg: string; kind: string }[]>([])
@@ -180,11 +201,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const archKey = JSON.stringify([draft.dataset, draft.blocks, blockList.length])
   useEffect(() => {
     const h = setTimeout(() => {
-      api.inspect(draft.dataset, { blocks: draft.blocks }).then(setInspect).catch(() => setInspect(null))
+      api
+        .inspect(draft.dataset, { blocks: draft.blocks })
+        .then((r) => { setInspect(r); setOffline(false) })
+        .catch((e) => {
+          setInspect(null)
+          // fetch() rejects with a TypeError when the server isn't there at all.
+          if (e instanceof TypeError) setOffline(true)
+        })
     }, 200)
     return () => clearTimeout(h)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [archKey])
+  }, [archKey, retry])
+
+  // While offline, check every few seconds and re-run the shape check once the server is back.
+  useEffect(() => {
+    if (!offline) return
+    const h = setInterval(() => {
+      fetch('/api/meta').then((r) => { if (r.ok) setRetry((n) => n + 1) }).catch(() => {})
+    }, 3000)
+    return () => clearInterval(h)
+  }, [offline])
 
   const setDraft = useCallback((fn: (d: Draft) => Draft, opts?: { undoable?: boolean }) => {
     setHist((h) => {
@@ -203,9 +240,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setHist((h) => (h.future.length ? { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) } : h))
   }, [])
 
-  const attachJob = useCallback((jobId: string, kind: 'train' | 'tune', name: string, runId: string | null = null) => {
+  const attachJob = useCallback((jobId: string, kind: 'train' | 'tune', name: string, runId: string | null = null, learn?: LearnMeta) => {
     unsub.current?.()
-    setSession(emptySession(jobId, kind, name, runId))
+    setSession({ ...emptySession(jobId, kind, name, runId), learn })
     unsub.current = streamJob(jobId, (e) => setSession((s) => (s && s.jobId === jobId ? reduce(s, e) : s)))
   }, [])
 
@@ -222,16 +259,61 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     })
   }, [attachJob])
 
+  // Hyperparameters the learner hasn't unlocked yet use beginner defaults, whatever the draft says.
+  const learnAccess = learn.access
+  const effectiveTraining = useCallback(
+    (t: Training): Training => {
+      if (learnAccess.unlocked || !meta) return t
+      const out: Training = { ...t }
+      for (const [name, feature] of Object.entries(HP_FEATURE)) {
+        if (!learnAccess.has(feature)) out[name] = name in BEGINNER_TRAINING ? BEGINNER_TRAINING[name] : meta.defaults[name]
+      }
+      return out
+    },
+    [learnAccess, meta],
+  )
+
   const toConfig = useCallback(
     (): RunConfig => ({
       name: draft.name,
       dataset: { id: draft.dataset, train_subset: draft.train_subset },
       architecture: { blocks: draft.blocks },
-      training: draft.training,
+      training: effectiveTraining(draft.training),
       custom_blocks: draft.custom_blocks,
     }),
-    [draft],
+    [draft, effectiveTraining],
   )
+
+  // Report finished jobs to the learning engine (XP, quests, achievements).
+  const { track, flag } = learn
+  useEffect(() => {
+    if (!session || session.reported || session.status === 'running') return
+    setSession((s) => (s ? { ...s, reported: true } : s))
+    if (session.kind === 'tune') {
+      if (session.status === 'completed' && session.trials.length) flag('optuna')
+      return
+    }
+    if (session.status !== 'completed' || !session.runId) return
+    api.run(session.runId).then((run) => {
+      const t = run.config.training
+      const defaults = meta?.defaults ?? {}
+      const info: TrainInfo = {
+        dataset: run.config.dataset.id,
+        valAcc: run.summary.best_val_acc ?? 0,
+        blockTypes: Array.from(new Set(run.config.architecture.blocks.map((b) => b.type))),
+        epochs: run.summary.epochs_done ?? 0,
+        layers: run.config.architecture.blocks.filter((b) => b.type === 'linear' || b.type === 'mlp').reduce((a, b) => a + (b.repeat || 1), 0),
+        width: session.learn?.width,
+        changed: Object.keys(t).filter((k) => t[k] !== undefined && defaults[k] !== undefined && JSON.stringify(t[k]) !== JSON.stringify(defaults[k])),
+        optimizer: String(t.optimizer),
+        lr: Number(t.lr),
+        built: !!session.learn?.built,
+        reproduced: run.summary.reproduced === true,
+        resumed: !!session.learn?.resumed,
+      }
+      track({ type: 'train_done', info })
+    })
+  }, [session, meta, track, flag])
 
   const loadConfig = useCallback(
     (cfg: RunConfig) => {
@@ -242,6 +324,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         blocks: cfg.architecture.blocks.map((b) => ({ ...b, id: b.id || newId(), repeat: b.repeat || 1 })),
         training: { ...(meta?.defaults ?? {}), ...cfg.training },
         custom_blocks: cfg.custom_blocks,
+        origin: 'import',
+        edited: false,
       }))
     },
     [meta, setDraft],
@@ -252,7 +336,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     meta, blocks, datasets, dataset, draft, setDraft, undo, redo, canUndo: hist.past.length > 0, canRedo: hist.future.length > 0,
-    inspect, refreshBlocks, session, attachJob, clearSession, toConfig, loadConfig, tab, setTab, toast, toasts,
+    inspect, offline, refreshBlocks, session, attachJob, clearSession, toConfig, effectiveTraining, loadConfig, tab, setTab, toast, toasts,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

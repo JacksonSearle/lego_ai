@@ -23,6 +23,8 @@ export interface BlockSpec {
   paper: string | null
   source: 'builtin' | 'custom'
   source_file: string | null
+  tags: string[]
+  year: number | null
 }
 
 export interface BlockInst {
@@ -232,4 +234,21 @@ export interface HistoryStage {
   paper: { title: string; url: string; authors: string }
   run: { id: string; status: string; summary: Summary } | null
   metrics: Metrics | null
+}
+
+export interface Prediction {
+  image?: number[]
+  shape?: number[]
+  text?: string
+  label: number
+  pred: number
+  top: { cls: number; p: number }[]
+}
+
+export interface Predictions {
+  kind: string
+  class_names?: string[]
+  examples?: Prediction[]
+  prompt?: string
+  generated?: string
 }

@@ -746,3 +746,24 @@ def build_classifier(in_shape, ctx, pool, dropout):
     if pool == "flatten":
         return ClassifierHead("flatten", math.prod(in_shape), ctx.num_classes, dropout)
     return ClassifierHead("mean_seq", in_shape[-1], ctx.num_classes, dropout)
+
+
+# ---------------------------------------------------------------------------
+# Task tags and year of introduction (used by the palette filter and the guidebook).
+# ---------------------------------------------------------------------------
+from ..registry import REGISTRY  # noqa: E402
+
+_META = {
+    "linear": (["general"], 1958), "mlp": (["general"], 1986), "activation": (["general"], 1986),
+    "dropout": (["general"], 2012), "flatten": (["general"], None), "classifier": (["general"], None),
+    "batchnorm": (["general", "image"], 2015), "layernorm": (["general", "text"], 2016),
+    "conv2d": (["image"], 1989), "depthwise_conv": (["image"], 2017), "resblock": (["image"], 2015),
+    "maxpool2d": (["image"], 1989), "avgpool2d": (["image"], 1989), "global_avgpool": (["image"], 2013),
+    "patch_embed": (["image"], 2020), "image_to_sequence": (["image"], 1990), "mixer": (["image"], 2021),
+    "embedding": (["text"], 2003), "seq_pool": (["text"], None), "rnn": (["text"], 1990), "lstm": (["text"], 1997),
+    "gru": (["text"], 2014), "self_attention": (["text", "image"], 2014),
+    "positional_encoding": (["text", "image"], 2017), "transformer": (["text", "image"], 2017),
+}
+for _type, (_tags, _year) in _META.items():
+    REGISTRY[_type].tags = _tags
+    REGISTRY[_type].year = _year

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { ArchView, Chips } from '../components/ArchView'
 import { LiveCharts } from '../components/LiveCharts'
+import { GuideButton } from '../learn/GuideButton'
+import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
 import type { RunDetail, RunRow } from '../types'
 import { fmtAgo, fmtDur, fmtLoss, fmtNum, fmtPct, MEDALS } from '../util'
@@ -63,6 +65,7 @@ export function Leaderboard() {
     <div className="page">
       <div className="row wrap" style={{ marginBottom: 14, gap: 12 }}>
         <h2>Leaderboard</h2>
+        <GuideButton lesson="app.leaderboard" />
         <div className="seg">
           <button className={ds === 'all' ? 'on' : ''} onClick={() => setDs('all')}>All</button>
           {dsWithRuns.map((d) => <button key={d.id} className={ds === d.id ? 'on' : ''} onClick={() => setDs(d.id)}>{d.name}</button>)}
@@ -77,7 +80,7 @@ export function Leaderboard() {
       </div>
 
       <div className={`lb-layout ${selected ? 'with-detail' : ''}`}>
-        <div className="panel" style={{ overflow: 'auto' }}>
+        <div className="panel" style={{ overflow: 'auto' }} data-tour="leaderboard">
           {filtered.length === 0 ? (
             <div className="empty" style={{ margin: 20 }}>No runs yet. Build a model and train it — it will show up here.</div>
           ) : (
@@ -139,6 +142,7 @@ export function Leaderboard() {
 
 function RunDetailPanel({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const { blocks: specs, datasets, loadConfig, setTab, attachJob, toast } = useStore()
+  const { access, flag } = useLearn()
   const [run, setRun] = useState<RunDetail | null>(null)
   const [epochs, setEpochs] = useState(0)
   const [showJson, setShowJson] = useState(false)
@@ -194,17 +198,17 @@ function RunDetailPanel({ id, onClose, onChanged }: { id: string; onClose: () =>
         )}
 
         <div className="row wrap">
-          <button className="primary" onClick={() => { loadConfig(run.config); setTab('build'); toast(`Loaded “${run.name}” into the builder`, 'ok') }}>Open in builder</button>
-          <button onClick={() => act(async () => { const r = await api.retrain(run.id); attachJob(r.job.id, 'train', run.name, r.run.id); r.notes.forEach((n) => toast(n)); if (r.env_diffs.length) toast(`Environment differs: ${r.env_diffs.join('; ')}`, 'error'); setTab('train') }, 'Retraining from scratch with the identical config')}
+          {access.has('builder') && <button className="primary" onClick={() => { loadConfig(run.config); setTab('build'); toast(`Loaded “${run.name}” into the builder`, 'ok') }}>Open in builder</button>}
+          {access.has('config.io') && <><button onClick={() => act(async () => { const r = await api.retrain(run.id); attachJob(r.job.id, 'train', run.name, r.run.id); r.notes.forEach((n) => toast(n)); if (r.env_diffs.length) toast(`Environment differs: ${r.env_diffs.join('; ')}`, 'error'); setTab('train') }, 'Retraining from scratch with the identical config')}
             title="Train the exact same config again and check the result matches">
             Retrain from scratch
           </button>
-          <a className="btn" href={`/api/runs/${run.id}/config`} download>Download config</a>
-          {run.has_checkpoint && <a className="btn" href={`/api/runs/${run.id}/checkpoint?which=best`} download>Weights (.pt)</a>}
+          <a className="btn" href={`/api/runs/${run.id}/config`} download onClick={() => flag('export')}>Download config</a>
+          {run.has_checkpoint && <a className="btn" href={`/api/runs/${run.id}/checkpoint?which=best`} download>Weights (.pt)</a>}</>}
         </div>
-        {run.has_checkpoint && run.status !== 'running' && (
+        {access.has('train.resume') && run.has_checkpoint && run.status !== 'running' && (
           <div className="row">
-            <button onClick={() => act(async () => { const r = await api.resume(run.id, epochs); attachJob(r.job.id, 'train', run.name, run.id); setTab('train') }, 'Resuming from checkpoint')}>
+            <button onClick={() => act(async () => { const r = await api.resume(run.id, epochs); attachJob(r.job.id, 'train', run.name, run.id, { resumed: true }); setTab('train') }, 'Resuming from checkpoint')}>
               Resume from checkpoint
             </button>
             <span className="small muted">continue to</span>

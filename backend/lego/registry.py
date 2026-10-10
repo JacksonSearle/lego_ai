@@ -119,6 +119,9 @@ class BlockSpec:
     paper: str | None = None
     source: str = "builtin"  # "builtin" | "custom"
     source_file: str | None = None
+    # Which kinds of task the block is typically used for: "image", "text", "general".
+    tags: list[str] = field(default_factory=lambda: ["general"])
+    year: int | None = None
 
     def to_json(self) -> dict:
         return {
@@ -132,6 +135,8 @@ class BlockSpec:
             "paper": self.paper,
             "source": self.source,
             "source_file": self.source_file,
+            "tags": self.tags,
+            "year": self.year,
         }
 
     def resolve_params(self, raw: dict | None) -> dict:

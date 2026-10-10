@@ -3,6 +3,11 @@ import { api, downloadJSON } from '../api'
 import { MiniStack } from '../components/ArchView'
 import { Brick } from '../components/Brick'
 import { ParamField } from '../components/ParamField'
+import { GuideButton } from '../learn/GuideButton'
+import { blockAllowed, skillForDataset } from '../learn/engine'
+import { useLearn } from '../learn/LearnContext'
+import { lessonForBlock } from '../learn/lessons'
+import { QuickTrain } from './QuickTrain'
 import { newId, useStore } from '../store'
 import type { BlockInst, BlockSpec, Template } from '../types'
 import { cloneBlock, defaultParams, describeInput, describeOutput, fmtNum, fmtShape } from '../util'
@@ -12,6 +17,8 @@ const MIME = 'application/x-lego'
 
 export function Builder() {
   const { blocks: specs, meta, draft, setDraft, inspect, dataset, datasets, undo, redo, canUndo, canRedo, setTab, toast, loadConfig } = useStore()
+  const { access, flag, openLesson } = useLearn()
+  const [taskFilter, setTaskFilter] = useState<'all' | 'image' | 'text'>('all')
   const [selected, setSelected] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragData | null>(null)
   const [insertAt, setInsertAt] = useState<number | null>(null)
@@ -29,7 +36,8 @@ export function Builder() {
     api.templates(draft.dataset).then(setTemplates)
   }, [draft.dataset])
 
-  const setBlocks = useCallback((fn: (b: BlockInst[]) => BlockInst[]) => setDraft((d) => ({ ...d, blocks: fn(d.blocks) })), [setDraft])
+  // Any change made here counts as the learner's own design.
+  const setBlocks = useCallback((fn: (b: BlockInst[]) => BlockInst[]) => setDraft((d) => ({ ...d, edited: true, origin: d.origin ?? 'scratch', blocks: fn(d.blocks) })), [setDraft])
 
   const insert = useCallback(
     (type: string, at: number) => {
@@ -52,9 +60,10 @@ export function Builder() {
   const remove = useCallback(
     (id: string) => {
       setBlocks((bs) => bs.filter((b) => b.id !== id))
+      flag('removeBlock')
       setSelected((s) => (s === id ? null : s))
     },
-    [setBlocks],
+    [setBlocks, flag],
   )
 
   const duplicate = useCallback(
@@ -131,7 +140,10 @@ export function Builder() {
     endDrag()
     if (!raw) return
     const data = JSON.parse(raw) as DragData
-    if (data.kind === 'new') insert(data.type, at)
+    if (data.kind === 'new') {
+      insert(data.type, at)
+      flag('dragBlock')
+    }
     else {
       setBlocks((bs) => {
         const from = bs.findIndex((b) => b.id === data.id)
@@ -144,6 +156,7 @@ export function Builder() {
         return next
       })
       setSelected(data.id)
+      flag('moveBlock')
     }
   }
 
@@ -154,7 +167,10 @@ export function Builder() {
       blocks: t.blocks.map((b) => ({ ...b, id: newId() })),
       training: { ...(meta?.defaults ?? {}), ...d.training, ...t.training },
       custom_blocks: undefined,
+      origin: 'template',
+      edited: false,
     }))
+    flag('template')
     setSelected(null)
     setShowTemplates(false)
     toast(`Loaded “${t.name}” — training settings updated too. Undo with ⌘Z.`, 'ok')
@@ -165,6 +181,7 @@ export function Builder() {
       const json = JSON.parse(await f.text())
       const res = await api.importConfig(json)
       loadConfig(res.config)
+      flag('import')
       res.notes.forEach((n) => toast(n))
       if (res.env_diffs.length) toast(`Environment differs from the original run: ${res.env_diffs.join('; ')}`, 'error')
       toast(`Imported “${res.config.name}”`, 'ok')
@@ -174,13 +191,18 @@ export function Builder() {
   }
 
   // ---- palette ----
+  const unlockedSpecs = useMemo(() => Object.values(specs).filter((s) => blockAllowed(access, s.type)), [specs, access])
+  const lockedCount = Object.values(specs).filter((s) => s.source === 'builtin').length - unlockedSpecs.filter((s) => s.source === 'builtin').length
+  const hasTasks = unlockedSpecs.some((s) => s.tags?.includes('image')) && unlockedSpecs.some((s) => s.tags?.includes('text'))
   const grouped = useMemo(() => {
     const cats = meta?.categories ?? []
     const by: Record<string, BlockSpec[]> = {}
-    Object.values(specs).forEach((s) => (by[s.category] ??= []).push(s))
+    unlockedSpecs
+      .filter((s) => taskFilter === 'all' || s.tags?.includes(taskFilter) || s.tags?.includes('general'))
+      .forEach((s) => (by[s.category] ??= []).push(s))
     const order = [...cats, ...Object.keys(by).filter((c) => !cats.includes(c))]
     return order.filter((c) => by[c]?.length).map((c) => [c, by[c]] as const)
-  }, [specs, meta])
+  }, [unlockedSpecs, meta, taskFilter])
 
   const ok = inspect?.ok && blocks.length > 0
   const outShape = inspect?.output_shape
@@ -206,8 +228,20 @@ export function Builder() {
   return (
     <div className="builder">
       {/* Palette */}
-      <aside className="palette">
-        <div className="small muted" style={{ marginBottom: 12 }}>Drag blocks onto the stack, or click to add.</div>
+      <aside className="palette" data-tour="palette">
+        <div className="row" style={{ marginBottom: 8 }}>
+          <span className="small muted grow">Drag blocks onto the stack, or click to add.</span>
+          <GuideButton lesson="app.builder" />
+        </div>
+        {(access.unlocked || hasTasks) && (
+          <div className="seg" style={{ width: '100%', marginBottom: 12 }}>
+            {(['all', 'image', 'text'] as const).map((k) => (
+              <button key={k} className={taskFilter === k ? 'on' : ''} onClick={() => setTaskFilter(k)} style={{ flex: 1 }}>
+                {k === 'all' ? 'All' : k === 'image' ? '🖼️ Image' : '📝 Text'}
+              </button>
+            ))}
+          </div>
+        )}
         {grouped.map(([cat, list]) => (
           <div key={cat} className="palette-cat">
             <h4>{cat}</h4>
@@ -224,48 +258,65 @@ export function Builder() {
                 <span className="palette-swatch" style={{ background: s.color, ['--sw' as string]: s.color }} />
                 <span className="grow">{s.name}</span>
                 {s.source === 'custom' && <span className="pill" style={{ fontSize: 10 }}>py</span>}
+                {s.source !== 'custom' && (
+                  <button className="ghost sm lesson-link" title={`Lesson: ${s.name}`} onClick={(e) => { e.stopPropagation(); openLesson(lessonForBlock(s.type)) }}>📖</button>
+                )}
               </div>
             ))}
           </div>
         ))}
-        <button className="sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setTab('custom')}>
-          + Define a block in Python
-        </button>
+        {lockedCount > 0 && (
+          <div className="locked-hint" onClick={() => { sessionStorage.setItem('lego-ai/guide-view', 'skills'); setTab('guide') }}>
+            🔒 {lockedCount} more blocks {access.has('skilltree') ? 'in the Skill Tree' : 'unlock as you level up'}
+          </div>
+        )}
+        {access.has('custom.page') && (
+          <button className="sm" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setTab('custom')}>
+            + Define a block in Python
+          </button>
+        )}
       </aside>
 
       {/* Canvas */}
       <section className="canvas" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
         <div className="canvas-toolbar">
           <input className="name" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }), { undoable: false })} title="Model name" />
-          <select value={draft.dataset} onChange={(e) => setDraft((d) => ({ ...d, dataset: e.target.value }))} title="Dataset">
-            {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-          <button onClick={() => setShowTemplates(true)}>Templates</button>
+          {access.has('datasets') ? (
+            <select value={draft.dataset} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value })); flag('datasetChanged') }} title="Dataset" data-tour="dataset">
+              {datasets.map((d) => {
+                const ok = !access.datasets || access.datasets.has(d.id)
+                return <option key={d.id} value={d.id} disabled={!ok}>{ok ? d.name : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
+              })}
+            </select>
+          ) : <span className="pill" title="More datasets unlock at level 6">🔢 MNIST</span>}
+          {access.has('builder.templates') && <button onClick={() => setShowTemplates(true)} data-tour="templates">Templates</button>}
           <button className="ghost" onClick={() => { setDraft((d) => ({ ...d, blocks: [], custom_blocks: undefined })); setSelected(null) }} disabled={!blocks.length}>
             Clear
           </button>
           <button className="ghost" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)">↶</button>
           <button className="ghost" onClick={redo} disabled={!canRedo} title="Redo (⇧⌘Z)">↷</button>
           <span className="spacer" />
+          {access.has('config.io') && <>
           <button className="ghost" onClick={() => fileRef.current?.click()} title="Load a .lego.json run config">Import</button>
-          <button className="ghost" onClick={() => downloadJSON({ format: 'lego-ai.run', version: 1, name: draft.name, dataset: { id: draft.dataset, train_subset: draft.train_subset }, architecture: { blocks }, training: draft.training }, `${draft.name.replace(/\W+/g, '_')}.lego.json`)} disabled={!blocks.length}>
+          <button className="ghost" data-tour="export" onClick={() => { flag('export'); downloadJSON({ format: 'lego-ai.run', version: 1, name: draft.name, dataset: { id: draft.dataset, train_subset: draft.train_subset }, architecture: { blocks }, training: draft.training }, `${draft.name.replace(/\W+/g, '_')}.lego.json`) }} disabled={!blocks.length}>
             Export
           </button>
+          </>}
           <input ref={fileRef} type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = '' }} />
           {blocks.length > 0 && (
             <span className={`pill ${ok ? 'ok' : 'bad'}`} title={inspect?.error ?? ''}>
               {ok ? `✓ valid · ${fmtNum(inspect?.total_params)} params` : '✗ needs fixing'}
             </span>
           )}
-          <button className="primary" disabled={!ok} onClick={() => setTab('train')}>Train →</button>
+          {access.has('train.page') && <button className="primary" disabled={!ok} onClick={() => setTab('train')}>Train →</button>}
         </div>
 
         {blocks.length === 0 && !drag ? (
-          <EmptyState templates={templates} specs={specs} onUse={useTemplate} onDragOver={onStackDragOver} onDrop={onStackDrop} dataset={dataset?.name} />
+          <EmptyState templates={access.has('builder.templates') ? templates : []} specs={specs} onUse={useTemplate} onDragOver={onStackDragOver} onDrop={onStackDrop} dataset={dataset?.name} />
         ) : (
           <div className="stack-wrap" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
-            <div className="stack" ref={stackRef} onDragOver={onStackDragOver} onDrop={onStackDrop} onDragLeave={(e) => { if (!stackRef.current?.contains(e.relatedTarget as Node)) setInsertAt(null) }}>
-              <div className={`io-node output ${blocks.length ? (outOk ? 'ok' : 'bad') : ''}`}>
+            <div className="stack" data-tour="stack" ref={stackRef} onDragOver={onStackDragOver} onDrop={onStackDrop} onDragLeave={(e) => { if (!stackRef.current?.contains(e.relatedTarget as Node)) setInsertAt(null) }}>
+              <div className={`io-node output ${blocks.length && inspect ? (outOk ? 'ok' : 'bad') : ''}`}>
                 <div className="io-label">OUTPUT · {describeOutput(dataset)}</div>
                 <div className="io-shape">{fmtShape(inspect?.expected_output)}</div>
                 {blocks.length > 0 && !outOk && inspect && !inspect.blocks.some((b) => b.error) && (
@@ -320,12 +371,17 @@ export function Builder() {
             inst={sel}
             spec={specs[sel.type]}
             report={reports[sel.id]}
-            onChange={(fn) => setBlocks((bs) => bs.map((b) => (b.id === sel.id ? fn(b) : b)))}
+            onChange={(fn) => setBlocks((bs) => bs.map((b) => {
+              if (b.id !== sel.id) return b
+              const nb = fn(b)
+              if (nb.repeat >= 3) flag('repeat3')
+              return nb
+            }))}
             onDelete={() => remove(sel.id)}
             onDuplicate={() => duplicate(sel.id)}
           />
         ) : (
-          <ModelSummary />
+          <>{!access.has('train.page') && <QuickTrain valid={!!ok} />}<ModelSummary /></>
         )}
       </aside>
 
@@ -378,9 +434,14 @@ function EmptyState({ templates, specs, onUse, onDragOver, onDrop, dataset }: {
   onDragOver: (e: DragEvent) => void; onDrop: (e: DragEvent) => void; dataset?: string
 }) {
   return (
-    <div style={{ padding: '28px 32px', maxWidth: 980, margin: '0 auto' }} onDragOver={onDragOver} onDrop={onDrop}>
-      <h2>Start with a proven architecture for {dataset}</h2>
-      <p className="muted" style={{ marginTop: 4 }}>Pick a template to customise, or drag blocks from the left to build from scratch.</p>
+    <div style={{ padding: '28px 32px', maxWidth: 980, margin: '0 auto' }} onDragOver={onDragOver} onDrop={onDrop} data-tour="stack">
+      {templates.length ? <>
+        <h2>Start with a proven architecture for {dataset}</h2>
+        <p className="muted" style={{ marginTop: 4 }}>Pick a template to customise, or drag blocks from the left to build from scratch.</p>
+      </> : <>
+        <h2>Build your model</h2>
+        <p className="muted" style={{ marginTop: 4 }}>Drag blocks from the panel on the left into this space. Data flows <b>up</b>: a simple digit reader is <b>Flatten</b> at the bottom, then <b>Linear</b>, then the <b>Output Head</b> on top.</p>
+      </>}
       <div style={{ marginTop: 16 }}>
         <TemplateGrid templates={templates} specs={specs} onUse={onUse} />
       </div>
@@ -396,6 +457,7 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
   onDelete: () => void
   onDuplicate: () => void
 }) {
+  const { access, openLesson } = useLearn()
   if (!spec) {
     return (
       <div className="inspector-body">
@@ -406,6 +468,7 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
   }
   const setParam = (k: string, v: unknown) => onChange((b) => ({ ...b, params: { ...b.params, [k]: v } }))
   const setRepeat = (n: number) => onChange((b) => ({ ...b, repeat: Math.max(1, Math.min(64, n || 1)) }))
+  const actsUnlocked = blockAllowed(access, 'activation')
   return (
     <>
       <div className="inspector-head">
@@ -425,7 +488,8 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
         </div>
         {report?.error && <div className="error-box">{report.error}</div>}
 
-        <label className="field">
+        {spec.source === 'builtin' && <button className="sm" onClick={() => openLesson(lessonForBlock(spec.type))}>📖 Learn how {spec.name} works</button>}
+        {access.has('builder.repeat') && <label className="field">
           <span className="lbl">Repeat</span>
           <div className="row">
             <div className="stepper">
@@ -435,11 +499,14 @@ function BlockInspector({ inst, spec, report, onChange, onDelete, onDuplicate }:
             </div>
           </div>
           <span className="help">Stack this block N times in a row (each copy has its own weights). Input size is inferred for each copy.</span>
-        </label>
+        </label>}
 
         {spec.params.length > 0 && <h4>Parameters</h4>}
         {spec.params.map((p) => (
-          <ParamField key={p.name} spec={p} value={inst.params[p.name]} onChange={(v) => setParam(p.name, v)} />
+          <div key={p.name}>
+            <ParamField spec={p} value={inst.params[p.name]} onChange={(v) => setParam(p.name, v)} disabled={p.type === 'activation' && !actsUnlocked} />
+            {p.type === 'activation' && !actsUnlocked && <span className="tiny faint">🔒 Choosing activations unlocks at level 5</span>}
+          </div>
         ))}
         {spec.params.length === 0 && <div className="small muted">This block has no parameters — its sizes are inferred from its input.</div>}
 

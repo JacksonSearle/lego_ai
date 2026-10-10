@@ -18,6 +18,52 @@ cd backend && uv run uvicorn lego.server:app --reload --port 8000
 cd frontend && npm run dev     # http://localhost:5173, proxies /api to :8000
 ```
 
+## Learning mode
+
+On first launch you choose between two modes:
+
+- **I'm new to AI** (guided). You start in the **Lab**, the simplest possible model: MNIST digits →
+  Flatten → one hidden layer → Output Head. You pick the layer's width from five presets, from
+  *too small* (2 neurons) to *too big* (4,096). Training starts on its own, and the page shows
+  the accuracy, the model's guesses on real test digits, and an MNIST leaderboard. You earn XP for
+  everything you try, and features unlock level by level:
+
+  | Level | Unlocks |
+  | --- | --- |
+  | 1 | Lab |
+  | 2 | stacking hidden layers (repeat) |
+  | 3 | the Builder: block panel, drag & drop, repeat, Dropout |
+  | 4 | tensor shapes lesson + the "repair the broken model" challenge |
+  | 5 | Train page (epochs, learning rate), Leaderboard, activation choice |
+  | 6 | Skill Tree, more datasets, History of AI |
+  | 7 | optimizer, batch size + memory checker |
+  | 8 | JSON import/export, resume, templates |
+  | 9 | schedules, regularisation, stability |
+  | 10 | Optuna |
+  | 11 | Custom Python blocks |
+  | 12 | seed / device / max steps |
+
+  From level 6, each level gives skill points to spend in the **Skill Tree**. It has an Image
+  branch (Conv → Pooling → ResNet → Depthwise → ViT → MLP-Mixer), a Text branch (Embeddings →
+  RNN → LSTM/GRU → Attention → Transformer) and a General branch, each in roughly historical
+  order. Each level comes with quests (the panel in the bottom right, with *Show me* buttons that
+  highlight what to click). There are 31 achievements, and avatars unlock as you level up.
+- **Unlock everything** (expert). Every block, page and setting is available, all achievements
+  are granted, there's no XP bar, and a one-minute spotlight tour introduces each page.
+
+You can switch modes or reset progress from the avatar menu. Progress is stored in
+`backend/data/progress.json`.
+
+The **Guidebook** tab is always available. It holds 48 lessons: concepts (neural nets, MNIST,
+training, layers, tensor shapes, overfitting), every page and action (loading a model from JSON,
+resuming, reproducing, the memory checker, Optuna, a line-by-line custom-block walkthrough),
+training knobs (epochs, learning rate, batch size, optimizers, schedules, regularisation, seeds)
+and every block. Block lessons include an animated diagram of what the block does, a walkthrough of
+each parameter, the matching PyTorch code annotated line by line, the original paper and a quiz.
+Every page has a **?** button linking to its lesson. The lesson content lives in
+`frontend/src/learn/` (`curriculum.ts` for levels, quests, achievements and skills; `lessons.tsx`;
+`diagrams/`).
+
 ## Tabs
 
 | Tab | What it does |

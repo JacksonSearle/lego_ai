@@ -58,3 +58,19 @@ class SqueezeExcite(nn.Module):
     def forward(self, x):
         w = self.fc(x.mean(dim=(2, 3)))
         return x * w[:, :, None, None]
+
+@lego_block(
+    name="Jackson-Custom",
+    color="#a83232",
+    description="Herp a derp dumb description",
+    params=[Param("reduction", "int", 4, "Reduction", "Bottleneck ratio of the gating MLP.", min=1, max=64)],
+    paper="https://arxiv.org/abs/1709.01507",
+)
+class JacksonCustom(nn.Module):
+    def __init__(self, in_shape, reduction=4):
+        super().__init__()
+        c = in_shape[0]
+        self.fc = nn.Sequential(nn.Linear(c, max(1, c // reduction)), nn.ReLU(), nn.Linear(max(1, c // reduction), c), nn.Sigmoid())
+
+    def forward(self, x):
+        return -x

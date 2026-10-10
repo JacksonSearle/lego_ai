@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, streamJob } from '../api'
 import { ArchView } from '../components/ArchView'
 import { LiveCharts } from '../components/LiveCharts'
+import { GuideButton } from '../learn/GuideButton'
+import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
 import type { EpochPoint, HistoryStage, JobEvent, StepPoint } from '../types'
 import { fmtDur, fmtNum, fmtPct } from '../util'
@@ -18,6 +20,7 @@ interface Live { steps: StepPoint[]; epochs: EpochPoint[] }
 
 export function History() {
   const { blocks: specs, datasets, toast, loadConfig, setTab } = useStore()
+  const { flag } = useLearn()
   const [stages, setStages] = useState<HistoryStage[]>([])
   const [budget, setBudget] = useState<Record<string, unknown>>({})
   const [jobId, setJobId] = useState<string | null>(null)
@@ -97,6 +100,10 @@ export function History() {
   const stage = stages[selected]
   const mnist = datasets.find((d) => d.id === 'mnist')
   const missing = stages.filter((s) => s.run?.status !== 'completed').map((s) => s.id)
+  const allDone = stages.length > 0 && missing.length === 0
+  useEffect(() => {
+    if (allDone) flag('historyDone')
+  }, [allDone, flag])
 
   const charts = useMemo(() => {
     if (!stage) return { steps: [], epochs: [] }
@@ -127,7 +134,7 @@ export function History() {
     <div className="page">
       <div className="row wrap" style={{ marginBottom: 14, gap: 12 }}>
         <div className="grow">
-          <h2>From least squares to transformers</h2>
+          <h2>From least squares to transformers <GuideButton lesson="app.history" /></h2>
           <div className="small muted" style={{ marginTop: 3 }}>
             Every model trains live on the same {fmtNum(budget.train_subset as number)} MNIST digits for {String(budget.epochs)} epochs (batch {String(budget.batch_size)}, {String(budget.device)}). Same data, same budget — only the architecture changes.
           </div>
@@ -144,7 +151,7 @@ export function History() {
       </div>
 
       {/* Timeline */}
-      <div className="timeline">
+      <div className="timeline" data-tour="timeline">
         <div className="timeline-track">
           {eras.map((e) => (
             <div key={e.era} className="timeline-era" title={e.era}

@@ -6,6 +6,8 @@ import { python } from '@codemirror/lang-python'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { api } from '../api'
 import { Brick } from '../components/Brick'
+import { GuideButton } from '../learn/GuideButton'
+import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
 import type { BlockSpec } from '../types'
 import { defaultParams } from '../util'
@@ -61,6 +63,7 @@ function Editor({ value, onChange }: { value: string; onChange: (s: string) => v
 
 export function CustomBlocks() {
   const { refreshBlocks, toast, setTab } = useStore()
+  const { flag, openLesson } = useLearn()
   const [files, setFiles] = useState<{ filename: string; source: string; blocks: string[] }[]>([])
   const [current, setCurrent] = useState<string | null>(null)
   const [filename, setFilename] = useState('')
@@ -98,6 +101,7 @@ export function CustomBlocks() {
     setCurrent(null)
     setFilename(`my_blocks${n > 1 ? n : ''}.py`)
     setSource(NEW_FILE)
+    flag('customNew')
     setDirty(true)
     setResult(null)
     setEditorKey((k) => k + 1)
@@ -113,6 +117,7 @@ export function CustomBlocks() {
       setCurrent(filename.endsWith('.py') ? filename : `${filename}.py`)
       await refreshBlocks()
       await load(filename.endsWith('.py') ? filename : `${filename}.py`)
+      flag('customSaved')
       toast(`Saved — ${r.blocks?.length} block(s) now in the builder palette`, 'ok')
     } catch (e) {
       setResult({ ok: false, error: (e as Error).message })
@@ -134,7 +139,7 @@ export function CustomBlocks() {
       <aside className="file-list">
         <div className="row" style={{ marginBottom: 10 }}>
           <h4 className="grow">Files</h4>
-          <button className="sm" onClick={newFile}>+ New</button>
+          <button className="sm" onClick={newFile} data-tour="custom-new">+ New</button>
         </div>
         {files.map((f) => (
           <div key={f.filename} className={`file-item ${f.filename === current ? 'active' : ''}`} onClick={() => open(f)}>
@@ -151,7 +156,8 @@ export function CustomBlocks() {
           {dirty && <span className="pill warn">unsaved</span>}
           <span className="spacer" />
           <button onClick={validate} disabled={!source}>Check</button>
-          <button className="primary" onClick={save} disabled={!source || !filename}>Save & load</button>
+          <button className="primary" onClick={save} disabled={!source || !filename} data-tour="custom-save">Save & load</button>
+          <GuideButton lesson="app.custom" label="step-by-step" />
           {current && <button className="danger" onClick={remove}>Delete</button>}
         </div>
         {filename ? (
@@ -177,6 +183,7 @@ export function CustomBlocks() {
           <div className="error-box">{result.error}</div>
         ))}
 
+        <button onClick={() => openLesson('app.custom')}>📖 Walk me through it, line by line</button>
         <div>
           <h4>How custom blocks work</h4>
           <ol className="small muted" style={{ paddingLeft: 18, lineHeight: 1.65, margin: '8px 0 0' }}>

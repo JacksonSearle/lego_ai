@@ -3,6 +3,10 @@ import { api } from '../api'
 import { MiniStack } from '../components/ArchView'
 import { LiveCharts } from '../components/LiveCharts'
 import { ParamField } from '../components/ParamField'
+import { HP_FEATURE } from '../learn/curriculum'
+import { skillForDataset } from '../learn/engine'
+import { GuideButton } from '../learn/GuideButton'
+import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
 import type { HyperParam, ProbeResult, RunRow, SearchSpec } from '../types'
 import { fmtDur, fmtLoss, fmtNum, fmtPct } from '../util'
@@ -24,6 +28,7 @@ export function Train() {
     }
   })
   const [runs, setRuns] = useState<RunRow[]>([])
+  const { access, flag } = useLearn()
 
   useEffect(() => {
     if (meta && !optuna) setOptuna({ n_trials: 10, epochs: 2, metric: 'val_acc', pruning: true, space: meta.search_space })
@@ -51,10 +56,12 @@ export function Train() {
 
   const visible = (h: HyperParam) =>
     !h.show_if || Object.entries(h.show_if).every(([k, vals]) => vals.includes(t[k] ?? meta?.defaults[k]))
+  const shown = (h: HyperParam) => visible(h) && (!HP_FEATURE[h.name] || access.has(HP_FEATURE[h.name]))
 
   const runProbe = async () => {
     setProbing(true)
     setProbe(null)
+    flag('probe')
     try {
       setProbe(await api.probe(toConfig()))
     } catch (e) {
@@ -77,13 +84,13 @@ export function Train() {
         await runProbe()
         return
       }
-      if (useOptuna && optuna) {
+      if (useOptuna && optuna && access.has('train.optuna')) {
         const { job } = await api.tune(cfg, optuna)
         attachJob(job.id, 'tune', cfg.name)
         toast(`Optuna study started: ${optuna.n_trials} trials`, 'ok')
       } else {
         const { job, run } = await api.train(cfg)
-        attachJob(job.id, 'train', cfg.name, run.id)
+        attachJob(job.id, 'train', cfg.name, run.id, { built: !!draft.edited })
       }
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -118,33 +125,36 @@ export function Train() {
               <div className="hp-grid">
                 <label className="field">
                   <span className="lbl">Dataset</span>
-                  <select value={draft.dataset} onChange={(e) => setDraft((d) => ({ ...d, dataset: e.target.value }))}>
-                    {datasets.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  <select value={draft.dataset} disabled={!access.has('datasets')} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value })); flag('datasetChanged') }}>
+                    {datasets.map((d) => {
+                      const ok = !access.datasets || access.datasets.has(d.id)
+                      return <option key={d.id} value={d.id} disabled={!ok}>{ok ? d.name : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
+                    })}
                   </select>
                 </label>
-                <label className="field">
+                {access.has('datasets') && <label className="field">
                   <span className="lbl">Training subset</span>
                   <input type="number" min={1} placeholder={`all ${fmtNum(dataset?.train_size)}`} value={draft.train_subset ?? ''}
                     onChange={(e) => setDraft((d) => ({ ...d, train_subset: e.target.value ? parseInt(e.target.value, 10) : null }), { undoable: false })} />
-                </label>
+                </label>}
                 <span className="help full">{dataset?.description}</span>
               </div>
-              <PreviousRuns runs={runs} onLoad={async (id) => { const r = await api.run(id); loadConfig({ ...r.config, name: r.config.name }); toast(`Loaded config of “${r.name}” — press Train to retrain from scratch`, 'ok') }} />
+              {(access.has('config.io') || access.has('train.resume')) && <PreviousRuns runs={runs} onLoad={async (id) => { const r = await api.run(id); loadConfig({ ...r.config, name: r.config.name }); toast(`Loaded config of “${r.name}” — press Train to retrain from scratch`, 'ok') }} />}
             </div>
           </div>
 
-          <div className="panel">
-            <div className="panel-head"><h3 className="grow">Hyperparameters</h3></div>
+          <div className="panel" data-tour="hyperparams">
+            <div className="panel-head"><h3 className="grow">Hyperparameters</h3><GuideButton lesson="app.train" label="guide" /></div>
             <div className="panel-body">
-              {groups.map(([group, hs]) => (
+              {groups.filter(([, hs]) => hs.some(shown)).map(([group, hs]) => (
                 <div key={group} className="hp-group">
                   <h4>{group}</h4>
                   <div className="hp-grid">
-                    {hs.filter(visible).map((h) => {
+                    {hs.filter(shown).map((h) => {
                       const spec = h.name === 'device' ? { ...h, choices: (h.choices ?? []).filter((c) => meta?.environment.available_devices.includes(String(c))) } : h
                       const tuned = useOptuna && optuna?.space[h.name]?.enabled
                       return (
-                        <div key={h.name} className={h.name === 'batch_size' ? 'full' : ''}>
+                        <div key={h.name} className={h.name === 'batch_size' ? 'full' : ''} data-tour={`hp-${h.name}`}>
                           <ParamField spec={spec} value={t[h.name]} onChange={(v) => setT(h.name, v)} disabled={!!tuned} />
                           {tuned && <span className="pill accent" style={{ marginTop: 4 }}>tuned by Optuna</span>}
                           {h.name === 'batch_size' && (
@@ -164,7 +174,7 @@ export function Train() {
             </div>
           </div>
 
-          {optuna && meta && (
+          {optuna && meta && access.has('train.optuna') && (
             <OptunaPanel enabled={useOptuna} setEnabled={setUseOptuna} opts={optuna} setOpts={setOptuna} hps={meta.hyperparams} reset={() => setOptuna({ n_trials: 10, epochs: 2, metric: 'val_acc', pruning: true, space: meta.search_space })} />
           )}
 
@@ -202,7 +212,7 @@ function OptunaPanel({ enabled, setEnabled, opts, setOpts, hps, reset }: {
 }) {
   const set = (k: string, s: SearchSpec) => setOpts({ ...opts, space: { ...opts.space, [k]: s } })
   return (
-    <div className="panel">
+    <div className="panel" data-tour="optuna">
       <div className="panel-head">
         <label className="switch">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
@@ -293,6 +303,9 @@ function ProbeTable({ probe, current, onPick }: { probe: ProbeResult; current: n
 
 function PreviousRuns({ runs, onLoad }: { runs: RunRow[]; onLoad: (id: string) => void }) {
   const { attachJob, toast } = useStore()
+  const { access } = useLearn()
+  const canLoad = access.has('config.io')
+  const canResume = access.has('train.resume')
   const [pick, setPick] = useState('')
   const [epochs, setEpochs] = useState(0)
   const run = runs.find((r) => r.id === pick)
@@ -313,14 +326,14 @@ function PreviousRuns({ runs, onLoad }: { runs: RunRow[]; onLoad: (id: string) =
       </select>
       {run && (
         <div className="row wrap">
-          <button className="sm" onClick={() => onLoad(run.id)} title="Copy its architecture and hyperparameters into the editor">Load config (retrain from scratch)</button>
-          {run.has_checkpoint && run.status !== 'running' && (
+          {canLoad && <button className="sm" onClick={() => onLoad(run.id)} title="Copy its architecture and hyperparameters into the editor">Load config (retrain from scratch)</button>}
+          {canResume && run.has_checkpoint && run.status !== 'running' && (
             <>
-              <span className="faint small">or</span>
+              {canLoad && <span className="faint small">or</span>}
               <button className="sm" onClick={async () => {
                 try {
                   const { job } = await api.resume(run.id, epochs)
-                  attachJob(job.id, 'train', run.name, run.id)
+                  attachJob(job.id, 'train', run.name, run.id, { resumed: true })
                   toast(`Resuming “${run.name}” from epoch ${run.summary.epochs_done}`, 'ok')
                 } catch (e) { toast((e as Error).message, 'error') }
               }}>Resume checkpoint to</button>
@@ -410,6 +423,7 @@ function LivePanel({ task }: { task?: string }) {
 
 function TrialsTable() {
   const { session, setDraft, toast } = useStore()
+  const { flag } = useLearn()
   if (!session) return null
   const fmt = (v: unknown) => (typeof v === 'number' ? (Math.abs(v) < 0.01 && v !== 0 ? v.toExponential(2) : +v.toPrecision(3)) : String(v))
   const keys = Array.from(new Set(session.trials.flatMap((t) => Object.keys(t.params))))
@@ -419,7 +433,7 @@ function TrialsTable() {
       <div className="panel-head">
         <h3 className="grow">Optuna trials</h3>
         {session.best && (
-          <button className="sm primary" onClick={() => { setDraft((d) => ({ ...d, training: { ...d.training, ...session.best!.params } })); toast('Applied the best hyperparameters to the training form', 'ok') }}>
+          <button className="sm primary" onClick={() => { setDraft((d) => ({ ...d, training: { ...d.training, ...session.best!.params } })); flag('applyBest'); toast('Applied the best hyperparameters to the training form', 'ok') }}>
             Use best params
           </button>
         )}

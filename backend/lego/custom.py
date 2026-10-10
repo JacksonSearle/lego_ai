@@ -43,6 +43,7 @@ def lego_block(
     expects: str = "any",
     paper: str | None = None,
     type: str | None = None,
+    tags: list[str] | None = None,
 ):
     """Mark a class or builder function as a Lego block."""
 
@@ -51,7 +52,7 @@ def lego_block(
             obj,
             _MARK,
             dict(name=name, color=color, description=description or (inspect.getdoc(obj) or "").strip(),
-                 params=params or [], expects=expects, paper=paper, type=type),
+                 params=params or [], expects=expects, paper=paper, type=type, tags=tags or ["general"]),
         )
         return obj
 
@@ -103,6 +104,7 @@ def exec_source(source: str, filename: str) -> list[BlockSpec]:
                 paper=meta["paper"],
                 source="custom",
                 source_file=filename,
+                tags=meta.get("tags") or ["general"],
             )
         )
     if not specs:

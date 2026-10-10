@@ -1,5 +1,5 @@
 import type {
-  BlockSpec, DatasetInfo, HistoryStage, InspectResult, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
+  Predictions, BlockSpec, DatasetInfo, HistoryStage, InspectResult, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -43,6 +43,7 @@ export const api = {
     req<{ config: RunConfig; notes: string[]; env_diffs: string[]; ok: boolean; error: string | null }>('POST', '/api/config/import', cfg),
 
   runs: () => req<RunRow[]>('GET', '/api/runs'),
+  predict: (id: string, n = 12, seed = 0) => req<Predictions>('POST', `/api/runs/${id}/predict`, { n, seed }),
   run: (id: string) => req<RunDetail>('GET', `/api/runs/${id}`),
   renameRun: (id: string, name: string) => req('PATCH', `/api/runs/${id}`, { name }),
   deleteRun: (id: string) => req('DELETE', `/api/runs/${id}`),
