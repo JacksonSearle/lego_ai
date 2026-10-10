@@ -1,5 +1,5 @@
 import type {
-  Predictions, BlockSpec, DatasetInfo, HistoryStage, InspectResult, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
+  Predictions, BlockSpec, DatasetInfo, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -22,8 +22,16 @@ export const api = {
   blocks: () => req<BlockSpec[]>('GET', '/api/blocks'),
   datasets: () => req<DatasetInfo[]>('GET', '/api/datasets'),
   templates: (dataset: string) => req<Template[]>('GET', `/api/templates/${dataset}`),
-  inspect: (dataset: string, architecture: RunConfig['architecture']) =>
-    req<InspectResult>('POST', '/api/inspect', { dataset, architecture }),
+  inspect: (dataset: string, architecture: RunConfig['architecture'], seq_len?: number | null) =>
+    req<InspectResult>('POST', '/api/inspect', { dataset, architecture, seq_len }),
+  hardware: () => req<Hardware>('GET', '/api/hardware'),
+  trainSeeds: (config: RunConfig, n: number) => req<{ job: Job }>('POST', '/api/train-seeds', { config, n }),
+  profiles: () => req<{ active: string; profiles: ProfileInfo[] }>('GET', '/api/profiles'),
+  createProfile: (name: string, opts?: { demo?: boolean; progress?: unknown }) =>
+    req<{ id: string; active: string; profiles: ProfileInfo[] }>('POST', '/api/profiles', { name, ...opts }),
+  activateProfile: (id: string) => req('POST', `/api/profiles/${id}/activate`),
+  renameProfile: (id: string, name: string) => req('PATCH', `/api/profiles/${id}`, { name }),
+  deleteProfile: (id: string) => req('DELETE', `/api/profiles/${id}`),
 
   customBlocks: () => req<{ files: { filename: string; source: string; blocks: string[] }[]; example: string }>('GET', '/api/custom-blocks'),
   validateCustom: (filename: string, source: string) =>
@@ -51,8 +59,6 @@ export const api = {
   jobs: () => req<Job[]>('GET', '/api/jobs'),
   stopJob: (id: string) => req('POST', `/api/jobs/${id}/stop`),
 
-  history: () => req<{ stages: HistoryStage[]; budget: Record<string, unknown>; job: Job | null }>('GET', '/api/history'),
-  historyRun: (only?: string[]) => req<{ job: Job }>('POST', '/api/history/run', { only }),
 }
 
 /** Stream a job's events. Returns an unsubscribe function. */

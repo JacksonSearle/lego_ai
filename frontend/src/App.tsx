@@ -3,9 +3,9 @@ import type { Feature } from './learn/curriculum'
 import { featureLevel } from './learn/engine'
 import { Guidebook, LessonModal } from './learn/Guidebook'
 import { LearnProvider, useLearn } from './learn/LearnContext'
-import { LevelUpModal, Onboarding, OverviewTour, ProfileBar, Rewards, Spotlight, Tutor } from './learn/Overlay'
+import { DemoPlayer } from './learn/Demo'
+import { LevelUpModal, Onboarding, OverviewTour, ProfileBar, Rewards, Spotlight } from './learn/Overlay'
 import { Builder } from './pages/Builder'
-import { History } from './pages/History'
 import { Lab } from './pages/Lab'
 import { Leaderboard } from './pages/Leaderboard'
 import { Train } from './pages/Train'
@@ -14,13 +14,12 @@ import { StoreProvider, useStore } from './store'
 // The code editor is heavy; only load it when the Custom Blocks tab is opened.
 const CustomBlocks = lazy(() => import('./pages/CustomBlocks').then((m) => ({ default: m.CustomBlocks })))
 
-const TABS: { id: string; label: string; feature?: Feature; hideWhen?: Feature }[] = [
+const TABS: { id: string; label: string; feature?: Feature }[] = [
   { id: 'lab', label: '🧪 Lab', feature: 'lab' },
   { id: 'build', label: 'Build', feature: 'builder' },
   { id: 'train', label: 'Train', feature: 'train.page' },
   { id: 'leaderboard', label: 'Leaderboard', feature: 'leaderboard.page' },
   { id: 'custom', label: 'Custom Blocks', feature: 'custom.page' },
-  { id: 'history', label: 'History of AI', feature: 'history.page' },
   { id: 'guide', label: '📖 Guidebook' },
 ]
 
@@ -28,7 +27,9 @@ function Shell() {
   const { tab, setTab, session, toasts, draft, setDraft, inspect, toast, offline } = useStore()
   const { access, progress, flag, update, setSpot, ready } = useLearn()
 
-  const visible = TABS.filter((t) => !(t.hideWhen && access.has(t.hideWhen)) && !(access.unlocked && t.id === 'lab'))
+  // The Lab is the level 1 to 4 playground. After that it leaves the tab bar (it stays reachable from
+  // the profile menu, and stays put while you are still on it so it never vanishes under you).
+  const visible = TABS.filter((t) => t.id !== 'lab' || tab === 'lab' || (!access.unlocked && access.level < 5))
   const allowed = (id: string) => {
     const t = TABS.find((x) => x.id === id)
     return !!t && visible.includes(t) && (!t.feature || access.has(t.feature))
@@ -65,7 +66,6 @@ function Shell() {
       train: <Train />,
       leaderboard: <Leaderboard />,
       custom: <CustomBlocks />,
-      history: <History />,
       guide: <Guidebook />,
     }[tab] ?? <Lab />
 
@@ -108,7 +108,7 @@ function Shell() {
       <div className="toasts">
         {toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.msg}</div>)}
       </div>
-      <Tutor />
+      <DemoPlayer />
       <Rewards />
       <Spotlight />
       <OverviewTour />

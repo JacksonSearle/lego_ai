@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import blocks  # noqa: F401  (registers built-ins)
-from . import batchsize, config as cfgmod, custom, datasets, history, jobs, model as modelmod, predict, progress, runs, templates, tuner
+from . import batchsize, config as cfgmod, custom, datasets, hardware, jobs, model as modelmod, predict, progress, runs, seeds, templates, tuner
 from .registry import CATEGORY_ORDER, REGISTRY
 from .train import train_run
 
@@ -70,8 +70,8 @@ def get_templates(dataset_id: str):
 @app.post("/api/inspect")
 def inspect_arch(body: dict = Body(...)):
     try:
-        info = datasets.get_info(body["dataset"])
-    except KeyError as e:
+        info = datasets.get_info(body["dataset"], body.get("seq_len"))
+    except (KeyError, ValueError) as e:
         _bad(e)
     return modelmod.inspect(body.get("architecture") or {"blocks": []}, info.input_shape, info.ctx()).to_json()
 
@@ -119,7 +119,7 @@ def _prepare_config(raw: dict) -> dict:
     embedded = cfg.get("custom_blocks") or {}
     current = custom.sources_for(used)
     cfg["custom_blocks"] = {**{k: v for k, v in embedded.items() if k not in current}, **current}
-    info = datasets.get_info(cfg["dataset"]["id"])
+    info = datasets.info_for(cfg["dataset"])
     overlay = custom.build_registry_overlay(cfg["custom_blocks"])
     report = modelmod.inspect(cfg["architecture"], info.input_shape, info.ctx(), overlay)
     if not report.ok:
@@ -209,6 +209,23 @@ def tune(body: dict = Body(...)):
     return {"job": job.to_json()}
 
 
+@app.post("/api/train-seeds")
+def train_seeds(body: dict = Body(...)):
+    """Train the same config with several consecutive seeds and report the mean and spread."""
+    try:
+        cfg = _prepare_config(body["config"])
+        n = max(2, min(10, int(body.get("n", 3))))
+    except (ValueError, KeyError) as e:
+        _bad(e)
+    job = jobs.start("seeds", lambda job: seeds.run_seeds(job, cfg, n), meta={"name": cfg["name"]})
+    return {"job": job.to_json()}
+
+
+@app.get("/api/hardware")
+def hardware_report():
+    return hardware.report()
+
+
 @app.get("/api/studies")
 def studies():
     return tuner.list_studies()
@@ -220,7 +237,7 @@ def import_config(body: dict = Body(...)):
     try:
         cfg = cfgmod.normalize(body)
         notes = custom.ensure_from_config(cfg.get("custom_blocks"))
-        info = datasets.get_info(cfg["dataset"]["id"])
+        info = datasets.info_for(cfg["dataset"])
         overlay = custom.build_registry_overlay(cfg.get("custom_blocks"))
         report = modelmod.inspect(cfg["architecture"], info.input_shape, info.ctx(), overlay)
     except (ValueError, KeyError, TypeError) as e:
@@ -241,7 +258,7 @@ def list_runs(include_demo: bool = False):
         out.append({
             "id": r["id"], "name": r["name"], "status": r["status"], "created_at": r["created_at"],
             "updated_at": r["updated_at"], "dataset": c["dataset"]["id"], "summary": r["summary"], "error": r.get("error"),
-            "study": r.get("study"), "reproduce_of": r.get("reproduce_of"),
+            "study": r.get("study"), "reproduce_of": r.get("reproduce_of"), "group": r.get("group"),
             "training": c["training"], "n_blocks": len(c["architecture"]["blocks"]),
             "block_types": [b["type"] for b in c["architecture"]["blocks"]],
             "has_checkpoint": runs.checkpoint_path(r["id"]).exists(),
@@ -352,12 +369,13 @@ async def job_events(job_id: str, since: int = 0):
 # ---------------------------------------------------------------------------
 @app.get("/api/progress")
 def get_progress():
-    return {"progress": progress.load()}
+    pid, state = progress.load()
+    return {"profile": pid, "progress": state}
 
 
 @app.put("/api/progress")
-def put_progress(body: dict = Body(...)):
-    progress.save(body)
+def put_progress(body: dict = Body(...), profile: str | None = None):
+    progress.save(body, profile)
     return {"ok": True}
 
 
@@ -367,23 +385,44 @@ def reset_progress():
     return {"ok": True}
 
 
-# ---------------------------------------------------------------------------
-# History tour
-# ---------------------------------------------------------------------------
-@app.get("/api/history")
-def history_state():
-    running = jobs.active("history")
-    return {**history.state(), "job": running[0].to_json() if running else None}
+@app.get("/api/profiles")
+def list_profiles():
+    return progress.list_profiles()
 
 
-@app.post("/api/history/run")
-def history_run(body: dict = Body(default={})):
-    running = jobs.active("history")
-    if running:
-        return {"job": running[0].to_json()}
-    only = body.get("only")
-    job = jobs.start("history", lambda job: history.run_all(job, only), meta={"only": only})
-    return {"job": job.to_json()}
+@app.post("/api/profiles")
+def create_profile(body: dict = Body(default={})):
+    pid = progress.create(body.get("name", ""), demo=bool(body.get("demo")), progress=body.get("progress"))
+    return {"id": pid, **progress.list_profiles()}
+
+
+@app.post("/api/profiles/{pid}/activate")
+def activate_profile(pid: str):
+    try:
+        progress.activate(pid)
+    except KeyError as e:
+        _bad(e, 404)
+    return progress.list_profiles()
+
+
+@app.patch("/api/profiles/{pid}")
+def rename_profile(pid: str, body: dict = Body(...)):
+    try:
+        progress.rename(pid, body.get("name", ""))
+    except KeyError as e:
+        _bad(e, 404)
+    return progress.list_profiles()
+
+
+@app.delete("/api/profiles/{pid}")
+def delete_profile(pid: str):
+    try:
+        progress.delete(pid)
+    except KeyError as e:
+        _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
+    return progress.list_profiles()
 
 
 # ---------------------------------------------------------------------------

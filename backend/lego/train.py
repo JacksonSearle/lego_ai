@@ -49,7 +49,7 @@ def build_model(config: dict, *, seed: int | None = None):
     With ``seed`` the global RNG is seeded inside an isolated section; without
     it the caller must already be inside its own ``RngStream``.
     """
-    info = datasets.get_info(config["dataset"]["id"])
+    info = datasets.info_for(config["dataset"])
     overlay = custom.build_registry_overlay(config.get("custom_blocks"))
     if seed is None:
         net, report = modelmod.build(config["architecture"], info.input_shape, info.ctx(), strict=True, overlay=overlay)
@@ -178,7 +178,7 @@ def train_run(
 
     try:
         emit({"type": "status", "message": "Loading dataset…"})
-        data = datasets.load(config["dataset"]["id"])
+        data = datasets.load_for(config["dataset"])
         device = resolve_device(t["device"])
         configure_determinism()
         rng = RngStream(t["seed"], device)
@@ -267,6 +267,7 @@ def train_run(
                 acc_correct = torch.zeros((), device=device)
                 acc_count = 0
                 ep_loss, ep_correct, ep_count = 0.0, 0, 0
+            t_data = t_compute = 0.0  # where this epoch's time goes (for the hardware panel)
             for b in range(first_batch, steps_per_epoch):
                 if job.stopping:
                     if b > 0:
@@ -282,9 +283,12 @@ def train_run(
                     })
                     runs.save(run)
                     raise Stopped()
+                t0 = time.perf_counter()
                 idx = perm[b * bs : (b + 1) * bs]
                 x = data.prepare(train_x[idx], device, augment=augment, gen=aug_gen)
                 y = train_y[idx].to(device)
+                t1 = time.perf_counter()
+                t_data += t1 - t0
                 with rng:  # dropout draws from this run's own random stream
                     logits = net(x)
                     loss = compute_loss(logits, y, t, logits.shape[-1])
@@ -318,17 +322,21 @@ def train_run(
                     acc_loss.zero_()
                     acc_correct.zero_()
                     acc_count = 0
+                t_compute += time.perf_counter() - t1
                 if global_step >= total_steps:
                     stop_reason = "max_steps"
                     break
 
+            t_eval = time.perf_counter()
             val = evaluate(net, data, "val", device, t)
+            t_eval = time.perf_counter() - t_eval
             if sched is not None and step_sched is None:
                 sched.step(val["loss"])
             ep = {
                 "epoch": epoch + 1, "step": global_step, "train_loss": ep_loss / max(1, ep_count),
                 "train_acc": ep_correct / max(1, ep_count), "val_loss": val["loss"], "val_acc": val["acc"],
                 "lr": opt.param_groups[0]["lr"], "seconds": time.time() - ep_start,
+                "data_seconds": t_data, "compute_seconds": t_compute, "eval_seconds": t_eval,
             }
             history["epochs"].append(ep)
             improved = val["acc"] > best["val_acc"] or (val["acc"] == best["val_acc"] and val["loss"] < best["val_loss"])

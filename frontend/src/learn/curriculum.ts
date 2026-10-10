@@ -18,7 +18,6 @@ export type Feature =
   | 'leaderboard.page'
   | 'skilltree'
   | 'datasets'
-  | 'history.page'
   | 'train.optimizer'
   | 'train.batch'
   | 'config.io'
@@ -97,8 +96,8 @@ export const LEVELS: Level[] = [
     news: ['Training gets its own page.', 'Control epochs and the learning rate.', 'The full Leaderboard page.', 'Choose activation functions.'],
   },
   {
-    level: 6, xp: 1500, title: 'Explorer', unlocks: ['skilltree', 'datasets', 'history.page'],
-    news: ['The Skill Tree: spend skill points to unlock image and text blocks.', 'New datasets.', 'The History of AI tour.'],
+    level: 6, xp: 1500, title: 'Explorer', unlocks: ['skilltree', 'datasets'],
+    news: ['The Skill Tree: spend skill points to unlock image and text blocks.', 'New datasets.'],
   },
   { level: 7, xp: 2000, title: 'Tinkerer', unlocks: ['train.optimizer', 'train.batch'], news: ['Pick the optimizer.', 'Batch size, plus a memory checker that tells you what fits.'] },
   {
@@ -155,7 +154,7 @@ export interface SkillNode {
 export const SKILLS: SkillNode[] = [
   // General
   { id: 'dropout', title: 'Dropout', branch: 'general', blocks: ['dropout'], requires: [], year: 2012, lesson: 'block.dropout', blurb: 'Randomly switch neurons off while training so the model can’t memorize.', col: 0, row: 0 },
-  { id: 'act_fns', title: 'Activation functions', branch: 'general', blocks: ['activation'], requires: [], year: 1986, lesson: 'block.activation', blurb: 'ReLU, GELU, tanh, sigmoid… choose the non-linearity.', col: 1, row: 0 },
+  { id: 'act_fns', title: 'Activation functions', branch: 'general', blocks: ['activation', 'drawn_activation'], requires: [], year: 1986, lesson: 'block.activation', blurb: 'ReLU, GELU, tanh, sigmoid… choose the non-linearity, or draw your own.', col: 1, row: 0 },
   { id: 'mlp', title: 'MLP Block', branch: 'general', blocks: ['mlp'], requires: ['act_fns'], year: 1986, lesson: 'block.mlp', blurb: 'Two layers in one block, with an optional shortcut.', col: 1, row: 1 },
   { id: 'norms', title: 'Normalization', branch: 'general', blocks: ['batchnorm', 'layernorm'], requires: ['dropout'], year: 2015, lesson: 'block.batchnorm', blurb: 'Batch Norm & Layer Norm keep signals well-scaled.', col: 0, row: 1 },
   // Image
@@ -259,12 +258,12 @@ export const QUESTS: Quest[] = [
   { id: 'q.lrlow', level: 5, title: 'Too slow…', how: 'Train with a learning rate of 0.00001 or less.', xp: 40, done: f('lrLow'), go: { tab: 'train', spot: 'hp-lr' } },
   { id: 'q.lb', level: 5, title: 'Check the standings', how: 'Open the Leaderboard page.', xp: 20, done: f('visit:leaderboard'), go: { tab: 'leaderboard' } },
   { id: 'q.97', level: 5, title: 'Nearly there', how: 'Reach 97% validation accuracy on MNIST.', xp: 60, done: best('mnist', 0.97), go: { tab: 'train' } },
+  { id: 'q.draw', level: 5, title: 'Draw your own', how: 'Add a Drawn Activation block after a Linear layer (set that layer’s activation to “none”), sketch a curve and train.', xp: 60, done: (s) => s.blocksTrained.includes('drawn_activation'), go: { tab: 'build', spot: 'palette' } },
   { id: 'q.actlesson', level: 5, title: 'Bend the line', how: 'Read the Activation functions lesson.', xp: 20, done: read('block.activation'), go: { lesson: 'block.activation' } },
   // Level 6 - explore
   { id: 'q.skill', level: 6, title: 'Choose a path', how: 'Open the Skill Tree in the guidebook and unlock a skill.', xp: 50, done: (_s, p) => p.skills.length >= 1, go: { tab: 'guide', spot: 'skilltree' } },
   { id: 'q.newblock', level: 6, title: 'New toys', how: 'Train a model that uses a block from the skill tree.', xp: 80, done: f('usedSkillBlock'), go: { tab: 'build', spot: 'palette' } },
   { id: 'q.dataset', level: 6, title: 'New data', how: 'Train on a dataset other than MNIST.', xp: 60, done: (s) => s.datasets.some((d) => d !== 'mnist'), go: { tab: 'build', spot: 'dataset' } },
-  { id: 'q.history', level: 6, title: 'How did we get here?', how: 'Visit the History of AI page.', xp: 40, done: f('visit:history'), go: { tab: 'history' } },
   { id: 'q.skill2', level: 6, title: 'Branch out', how: 'Unlock a second skill.', xp: 50, done: (_s, p) => p.skills.length >= 2, go: { tab: 'guide', spot: 'skilltree' } },
   // Level 7 - optimizer & batch
   { id: 'q.optlesson', level: 7, title: 'Meet the optimizers', how: 'Read the Optimizers lesson.', xp: 20, done: read('train.optimizers'), go: { lesson: 'train.optimizers' } },
@@ -295,6 +294,7 @@ export const QUESTS: Quest[] = [
   // Level 12 - reproducibility
   { id: 'q.seedlesson', level: 12, title: 'Seeds & devices', how: 'Read the Reproducibility lesson.', xp: 20, done: read('train.repro'), go: { lesson: 'train.repro' } },
   { id: 'q.seed', level: 12, title: 'Roll the dice', how: 'Train with a different random seed.', xp: 40, done: f('hp:seed'), go: { tab: 'train', spot: 'hp-seed' } },
+  { id: 'q.seeds', level: 12, title: 'How sure are you?', how: 'Next to the Train button, set “seeds” to 3 and train. You get an average and a spread instead of one lucky number.', xp: 80, done: f('seeds'), go: { tab: 'train' } },
 ]
 
 // ---------------------------------------------------------------------------
@@ -337,11 +337,12 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'a.resnet', icon: '⤴️', title: 'Skip Ahead', desc: 'Train a model with a residual block.', xp: 50, done: trained('resblock') },
   { id: 'a.lstm', icon: '🧵', title: 'Long Memory', desc: 'Train a model with an LSTM or GRU.', xp: 50, done: (s) => s.blocksTrained.includes('lstm') || s.blocksTrained.includes('gru') },
   { id: 'a.attention', icon: '✨', title: 'Attention Is All You Need', desc: 'Train a model with a Transformer block.', xp: 75, done: trained('transformer') },
-  { id: 'a.historian', icon: '📜', title: 'Historian', desc: 'Watch the History of AI tour finish.', xp: 75, done: f('historyDone') },
   { id: 'a.librarian', icon: '📚', title: 'Librarian', desc: 'Read 10 guidebook lessons.', xp: 75, done: (s) => s.lessons.length >= 10 },
   { id: 'a.scholar', icon: '🎓', title: 'Scholar', desc: 'Read 30 guidebook lessons.', xp: 200, done: (s) => s.lessons.length >= 30 },
   { id: 'a.quiz', icon: '❓', title: 'Quiz Whiz', desc: 'Answer 5 quizzes correctly.', xp: 75, done: (s) => s.quizzes.length >= 5 },
   { id: 'a.collector', icon: '🌳', title: 'Collector', desc: 'Unlock 8 skills in the skill tree.', xp: 100, done: (_s, p) => p.skills.length >= 8 },
+  { id: 'a.seeds', icon: '🎲', title: 'Statistician', desc: 'Train a model with several seeds to measure how much luck is involved.', xp: 100, done: f('seeds') },
+  { id: 'a.artist', icon: '🎨', title: 'Function Artist', desc: 'Train a model with an activation function you drew yourself.', xp: 75, done: (s) => s.blocksTrained.includes('drawn_activation') },
   { id: 'a.regular', icon: '📋', title: 'Regular', desc: 'Complete 10 training runs.', xp: 75, done: (s) => s.runs >= 10 },
 ]
 

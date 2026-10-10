@@ -45,6 +45,10 @@ export function paramSummary(spec: BlockSpec | undefined, params: Record<string,
   for (const p of spec.params) {
     const v = params[p.name] ?? p.default
     if (HIDDEN_IN_SUMMARY.has(p.name)) continue
+    if (p.type === 'curve') {
+      parts.push('hand-drawn')
+      continue
+    }
     if (p.type === 'bool') {
       if (v && BOOL_TAGS[p.name]) parts.push(BOOL_TAGS[p.name])
     } else if (v === 0 && (p.name === 'out_features' || p.name === 'out_channels')) parts.push('same')
@@ -84,3 +88,33 @@ export function defaultParams(spec: BlockSpec): Record<string, unknown> {
 }
 
 export const MEDALS = ['🥇', '🥈', '🥉']
+
+/**
+ * Fit y = a · x^(-b) by least squares in log-log space (the shape most loss curves follow once
+ * the first rapid drop is over). Returns null when there is too little usable data.
+ */
+export function fitPowerLaw(pts: { x: number; y: number }[], minPoints = 6): { a: number; b: number } | null {
+  const use = pts.filter((p) => p.x > 0 && p.y > 0)
+  if (use.length < minPoints) return null
+  const lx = use.map((p) => Math.log(p.x))
+  const ly = use.map((p) => Math.log(p.y))
+  const n = use.length
+  const mx = lx.reduce((s, v) => s + v, 0) / n
+  const my = ly.reduce((s, v) => s + v, 0) / n
+  let sxx = 0
+  let sxy = 0
+  for (let i = 0; i < n; i++) {
+    sxx += (lx[i] - mx) ** 2
+    sxy += (lx[i] - mx) * (ly[i] - my)
+  }
+  if (sxx === 0) return null
+  const slope = sxy / sxx
+  return { a: Math.exp(my - slope * mx), b: -slope }
+}
+
+/** Where a fitted power law reaches `target` (x), or null if the trend never gets there. */
+export function powerLawReach(fit: { a: number; b: number } | null, target: number): number | null {
+  if (!fit || fit.b <= 0.01 || target <= 0) return null
+  const x = (fit.a / target) ** (1 / fit.b)
+  return Number.isFinite(x) ? x : null
+}

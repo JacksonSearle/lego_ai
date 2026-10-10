@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
 import { MiniStack } from '../components/ArchView'
 import { LiveCharts } from '../components/LiveCharts'
+import { Difficulty, difficultyTag } from '../components/Difficulty'
+import { HardwarePanel, bottleneck } from '../components/HardwarePanel'
 import { NumInput } from '../components/NumInput'
 import { ParamField } from '../components/ParamField'
 import { HP_FEATURE } from '../learn/curriculum'
@@ -10,12 +12,12 @@ import { GuideButton } from '../learn/GuideButton'
 import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
 import type { HyperParam, ProbeResult, RunRow, SearchSpec } from '../types'
-import { fmtDur, fmtLoss, fmtNum, fmtPct } from '../util'
+import { fitPowerLaw, fmtDur, fmtLoss, fmtNum, fmtPct, powerLawReach } from '../util'
 
 const SPACE_KEY = 'lego-ai/search-space-v2'
 
 export function Train() {
-  const { meta, draft, setDraft, dataset, datasets, inspect, blocks: specs, session, attachJob, toConfig, setTab, toast, loadConfig } = useStore()
+  const { meta, draft, setDraft, dataset, datasets, inspect, blocks: specs, session, attachJob, toConfig, effectiveTraining, setTab, toast, loadConfig } = useStore()
   const [probe, setProbe] = useState<ProbeResult | null>(null)
   const [probing, setProbing] = useState(false)
   const [starting, setStarting] = useState(false)
@@ -29,7 +31,19 @@ export function Train() {
     }
   })
   const [runs, setRuns] = useState<RunRow[]>([])
-  const { access, flag } = useLearn()
+  const { access, flag, spot, progress } = useLearn()
+  const [pane, setPane] = useState<Pane>(() => (sessionStorage.getItem('lego-ai/train-pane') as Pane) || 'hp')
+  const [seeds, setSeeds] = useState(1)
+  // Explanations take a lot of room: on by default while learning, off for experts. Remembered.
+  const [explain, setExplain] = useState(() => (localStorage.getItem('lego-ai/explain-hp') ?? (progress.mode === 'guided' ? '1' : '0')) === '1')
+  useEffect(() => localStorage.setItem('lego-ai/explain-hp', explain ? '1' : '0'), [explain])
+  useEffect(() => sessionStorage.setItem('lego-ai/train-pane', pane), [pane])
+  // When a quest or the tour points at something on another tab of this column, switch to it.
+  useEffect(() => {
+    if (!spot) return
+    if (spot.id === 'optuna') setPane('optuna')
+    else if (spot.id.startsWith('hp-') || spot.id === 'hyperparams') setPane('hp')
+  }, [spot])
 
   useEffect(() => {
     if (meta && !optuna) setOptuna({ n_trials: 10, epochs: 2, metric: 'val_acc', pruning: true, space: meta.search_space })
@@ -89,6 +103,10 @@ export function Train() {
         const { job } = await api.tune(cfg, optuna)
         attachJob(job.id, 'tune', cfg.name)
         toast(`Optuna study started: ${optuna.n_trials} trials`, 'ok')
+      } else if (seeds > 1 && access.has('train.repro')) {
+        const { job } = await api.trainSeeds(cfg, seeds)
+        attachJob(job.id, 'seeds', cfg.name)
+        toast(`Training ${seeds} copies with seeds ${cfg.training.seed} to ${Number(cfg.training.seed) + seeds - 1}`, 'ok')
       } else {
         const { job, run } = await api.train(cfg)
         attachJob(job.id, 'train', cfg.name, run.id, { built: !!draft.edited })
@@ -102,34 +120,47 @@ export function Train() {
 
   const stop = () => session && api.stopJob(session.jobId).then(() => toast(session.kind === 'train' ? 'Pausing after the current step. Press Resume to continue from the same point.' : 'Stopping after the current step…'))
 
+  const examples = draft.train_subset ? Math.min(draft.train_subset, dataset?.train_size ?? Infinity) : dataset?.train_size
+  const lastEpoch = session?.epochPts[session.epochPts.length - 1]
+  const canOptuna = !!optuna && !!meta && access.has('train.optuna')
+  const multiSeed = seeds > 1 && access.has('train.repro') && !(useOptuna && canOptuna)
+  const panes: { id: Pane; label: string }[] = [
+    { id: 'model', label: 'Model & data' },
+    { id: 'hp', label: 'Hyperparameters' },
+    ...(canOptuna ? [{ id: 'optuna' as Pane, label: useOptuna ? 'Search ●' : 'Search' }] : []),
+    { id: 'hardware', label: 'Hardware' },
+  ]
+
   return (
-    <div className="page">
-      <div className="train-grid">
-        {/* ------------- Settings column ------------- */}
-        <div className="col" style={{ gap: 14 }}>
-          <div className="panel">
-            <div className="panel-head">
-              <h3 className="grow">Model & data</h3>
-              <button className="sm ghost" onClick={() => setTab('build')}>Edit architecture</button>
+    <div className="train-page">
+      {/* ------------- Settings column: tabs with their own scrolling, actions always visible ------------- */}
+      <div className="train-side">
+        <div className="train-model">
+          <MiniStack blocks={draft.blocks} specs={specs} width={34} />
+          <div className="grow" style={{ minWidth: 0, paddingLeft: 14 }}>
+            <input className="train-name" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }), { undoable: false })} title="Model name" />
+            <div className="tiny muted">
+              {dataset?.name} · {draft.blocks.length} blocks · {fmtNum(inspect?.total_params)} params ·{' '}
+              {valid ? <span className="ok">valid</span> : <span className="bad">{draft.blocks.length ? 'invalid: fix in builder' : 'empty'}</span>}
             </div>
-            <div className="panel-body col" style={{ gap: 12 }}>
-              <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
-                <MiniStack blocks={draft.blocks} specs={specs} width={70} />
-                <div className="grow col" style={{ gap: 8, paddingLeft: 18 }}>
-                  <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }), { undoable: false })} />
-                  <div className="small muted">
-                    {draft.blocks.length} blocks · {fmtNum(inspect?.total_params)} params ·{' '}
-                    {valid ? <span className="ok">valid</span> : <span className="bad">{draft.blocks.length ? 'invalid: fix in builder' : 'empty'}</span>}
-                  </div>
-                </div>
-              </div>
+          </div>
+          <button className="sm ghost" onClick={() => setTab('build')}>Edit</button>
+          <GuideButton lesson="app.train" />
+        </div>
+        <div className="seg train-tabs">
+          {panes.map((x) => <button key={x.id} className={pane === x.id ? 'on' : ''} onClick={() => setPane(x.id)}>{x.label}</button>)}
+        </div>
+
+        <div className="train-side-body">
+          {pane === 'model' && (
+            <div className="col" style={{ gap: 12 }}>
               <div className="hp-grid">
                 <label className="field">
                   <span className="lbl">Dataset</span>
-                  <select value={draft.dataset} disabled={!access.has('datasets')} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value })); flag('datasetChanged') }}>
+                  <select value={draft.dataset} disabled={!access.has('datasets')} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value, seq_len: null })); flag('datasetChanged') }}>
                     {datasets.map((d) => {
                       const ok = !access.datasets || access.datasets.has(d.id)
-                      return <option key={d.id} value={d.id} disabled={!ok}>{ok ? d.name : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
+                      return <option key={d.id} value={d.id} disabled={!ok}>{ok ? `${d.name} · ${difficultyTag(d).toLowerCase()}` : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
                     })}
                   </select>
                 </label>
@@ -138,32 +169,39 @@ export function Train() {
                   <NumInput int min={1} placeholder={`all ${fmtNum(dataset?.train_size)}`} value={draft.train_subset}
                     onChange={(n) => setDraft((d) => ({ ...d, train_subset: n }), { undoable: false })} />
                 </label>}
-                <span className="help full">{dataset?.description}</span>
+                {access.has('datasets') && dataset?.seq_len_range && <label className="field">
+                  <span className="lbl">Sequence length</span>
+                  <NumInput int min={dataset.seq_len_range[0]} max={dataset.seq_len_range[1]} value={draft.seq_len ?? dataset.seq_len} emptyValue={dataset.seq_len}
+                    onChange={(n) => setDraft((d) => ({ ...d, seq_len: n === dataset.seq_len ? null : n }))} />
+                  <span className="help">Tokens the model reads at once ({dataset.seq_len_range[0]} to {dataset.seq_len_range[1]}). Longer gives more context but each step is slower.</span>
+                </label>}
               </div>
+              <div className="small muted">{dataset?.description}</div>
+              <Difficulty dataset={dataset} />
               {(access.has('config.io') || access.has('train.resume')) && <PreviousRuns runs={runs} onLoad={async (id) => { const r = await api.run(id); loadConfig({ ...r.config, name: r.config.name }); toast(`Loaded config of “${r.name}”: press Train to retrain from scratch`, 'ok') }} />}
             </div>
-          </div>
+          )}
 
-          <div className="panel" data-tour="hyperparams">
-            <div className="panel-head"><h3 className="grow">Hyperparameters</h3><GuideButton lesson="app.train" label="guide" /></div>
-            <div className="panel-body">
+          {pane === 'hp' && (
+            <div data-tour="hyperparams">
+              <label className="row tiny muted" style={{ justifyContent: 'flex-end', marginBottom: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={explain} onChange={(e) => setExplain(e.target.checked)} /> explain every setting
+              </label>
               {groups.filter(([, hs]) => hs.some(shown)).map(([group, hs]) => (
                 <div key={group} className="hp-group">
                   <h4>{group}</h4>
                   <div className="hp-grid">
                     {hs.filter(shown).map((h) => {
                       const spec = h.name === 'device' ? { ...h, choices: (h.choices ?? []).filter((c) => meta?.environment.available_devices.includes(String(c))) } : h
-                      const tuned = useOptuna && optuna?.space[h.name]?.enabled
+                      const tuned = useOptuna && canOptuna && optuna?.space[h.name]?.enabled
                       return (
-                        <div key={h.name} className={h.name === 'batch_size' ? 'full' : ''} data-tour={`hp-${h.name}`}>
-                          <ParamField spec={spec} value={t[h.name]} onChange={(v) => setT(h.name, v)} disabled={!!tuned} />
+                        <div key={h.name} className={h.name === 'batch_size' && (explain || probe) ? 'full' : ''} data-tour={`hp-${h.name}`}>
+                          <ParamField spec={spec} value={t[h.name]} onChange={(v) => setT(h.name, v)} disabled={!!tuned} brief={!explain} />
                           {tuned && <span className="pill accent" style={{ marginTop: 4 }}>tuned by Optuna</span>}
                           {h.name === 'batch_size' && (
-                            <div className="row" style={{ marginTop: 6 }}>
-                              <button className="sm" onClick={runProbe} disabled={probing || !valid}>
-                                {probing ? <><span className="spinner" /> Testing batch sizes…</> : 'Check what fits in memory'}
-                              </button>
-                            </div>
+                            <button className="sm" style={{ marginTop: 6 }} onClick={runProbe} disabled={probing || !valid}>
+                              {probing ? <><span className="spinner" /> Testing…</> : 'Check what fits in memory'}
+                            </button>
                           )}
                         </div>
                       )
@@ -173,32 +211,46 @@ export function Train() {
                 </div>
               ))}
             </div>
-          </div>
-
-          {optuna && meta && access.has('train.optuna') && (
-            <OptunaPanel enabled={useOptuna} setEnabled={setUseOptuna} opts={optuna} setOpts={setOptuna} hps={meta.hyperparams} reset={() => setOptuna({ n_trials: 10, epochs: 2, metric: 'val_acc', pruning: true, space: meta.search_space })} />
           )}
 
-          <div className="row">
-            {running ? (
-              <button className="big danger" onClick={stop}>{session?.kind === 'train' ? '⏸ Pause' : '■ Stop'}</button>
-            ) : (
-              <button className="big primary" onClick={start} disabled={!valid || starting}>
-                {starting ? <><span className="spinner" /> Checking memory…</> : override === probeKey + t.batch_size ? '▶ Train anyway' : useOptuna ? `▶ Run Optuna (${optuna?.n_trials} trials)` : '▶ Train'}
-              </button>
-            )}
-            <span className="small muted">
-              {fmtNum(draft.train_subset ? Math.min(draft.train_subset, dataset?.train_size ?? Infinity) : dataset?.train_size)} examples · seed {String(t.seed)} · {String(t.device)}
-            </span>
-          </div>
+          {pane === 'optuna' && canOptuna && (
+            <OptunaPanel enabled={useOptuna} setEnabled={setUseOptuna} opts={optuna!} setOpts={setOptuna} hps={meta!.hyperparams} reset={() => setOptuna({ n_trials: 10, epochs: 2, metric: 'val_acc', pruning: true, space: meta!.search_space })} />
+          )}
+
+          {pane === 'hardware' && <HardwarePanel device={String(effectiveTraining(t).device)} lastEpoch={lastEpoch} />}
         </div>
 
-        {/* ------------- Live column ------------- */}
-        <LivePanel task={dataset?.task} />
+        <div className="train-actions">
+          {running ? (
+            <button className="big danger" onClick={stop}>{session?.kind === 'train' ? '⏸ Pause' : '■ Stop'}</button>
+          ) : (
+            <button className="big primary" onClick={start} disabled={!valid || starting}>
+              {starting ? <><span className="spinner" /> Checking memory…</> : override === probeKey + t.batch_size ? '▶ Train anyway' : useOptuna && canOptuna ? `▶ Run Optuna (${optuna?.n_trials} trials)` : multiSeed ? `▶ Train × ${seeds} seeds` : '▶ Train'}
+            </button>
+          )}
+          <div className="grow tiny muted" style={{ minWidth: 0 }}>
+            <div>{fmtNum(examples)} examples · {String(effectiveTraining(t).epochs)} epoch{effectiveTraining(t).epochs === 1 ? '' : 's'} · {String(effectiveTraining(t).device)}</div>
+            {access.has('train.repro') && !(useOptuna && canOptuna) && (
+              <label className="row" style={{ gap: 4, marginTop: 2 }} title="Train the same model several times with different random seeds to see how much the result depends on luck. Reports the average and the spread.">
+                seeds
+                <select className="mini-select" value={seeds} onChange={(e) => setSeeds(Number(e.target.value))} disabled={running}>
+                  <option value={1}>1 (seed {String(t.seed)})</option>
+                  <option value={3}>3 → mean ± spread</option>
+                  <option value={5}>5 → mean ± spread</option>
+                </select>
+              </label>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* ------------- Live column ------------- */}
+      <div className="train-live"><LivePanel task={dataset?.task} /></div>
     </div>
   )
 }
+
+type Pane = 'model' | 'hp' | 'optuna' | 'hardware'
 
 interface OptunaOpts {
   n_trials: number
@@ -213,8 +265,8 @@ function OptunaPanel({ enabled, setEnabled, opts, setOpts, hps, reset }: {
 }) {
   const set = (k: string, s: SearchSpec) => setOpts({ ...opts, space: { ...opts.space, [k]: s } })
   return (
-    <div className="panel" data-tour="optuna">
-      <div className="panel-head">
+    <div data-tour="optuna">
+      <div className="row" style={{ marginBottom: 10 }}>
         <label className="switch">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <span className="track" />
@@ -223,9 +275,9 @@ function OptunaPanel({ enabled, setEnabled, opts, setOpts, hps, reset }: {
         {enabled && <button className="sm ghost" onClick={reset}>Reset ranges</button>}
       </div>
       {!enabled ? (
-        <div className="panel-body small muted">Give ranges instead of exact values and let Optuna's TPE sampler search them. Bad trials are pruned early; every trial is saved as a reproducible run.</div>
+        <div className="small muted">Give ranges instead of exact values and let Optuna's TPE sampler search them. Bad trials are pruned early; every trial is saved as a reproducible run.</div>
       ) : (
-        <div className="panel-body col" style={{ gap: 12 }}>
+        <div className="col" style={{ gap: 12 }}>
           <div className="hp-grid">
             <label className="field"><span className="lbl">Trials</span>
               <NumInput int min={1} max={500} value={opts.n_trials} emptyValue={10} onChange={(n) => setOpts({ ...opts, n_trials: n ?? 10 })} /></label>
@@ -370,6 +422,25 @@ function LivePanel({ task }: { task?: string }) {
   const { session, clearSession, setTab, attachJob, toast } = useStore()
   const [now, setNow] = useState(Date.now())
   const [resuming, setResuming] = useState(false)
+  const [project, setProject] = useState(() => localStorage.getItem('lego-ai/projection') === '1')
+  const [targetLoss, setTargetLoss] = useState<number | null>(null)
+  const [targetAcc, setTargetAcc] = useState<number | null>(null)
+  useEffect(() => localStorage.setItem('lego-ai/projection', project ? '1' : '0'), [project])
+  // Projection: fit a power law to the recent training loss and extend it.
+  const proj = useMemo(() => {
+    const steps = session?.steps ?? []
+    const last = steps[steps.length - 1]
+    if (!project || !last || last.epoch <= 0) return null
+    const perEpoch = last.step / last.epoch
+    const fit = fitPowerLaw(steps.slice(Math.floor(steps.length * 0.3)).map((p) => ({ x: p.step, y: p.loss })), 8)
+    const errFit = fitPowerLaw((session?.epochPts ?? []).map((e) => ({ x: e.epoch, y: 1 - e.val_acc })), 3)
+    const horizon = Math.max(last.step * 3, (session?.totalSteps ?? 0) * 1.5)
+    const line = fit ? Array.from({ length: 40 }, (_, i) => {
+      const x = last.step + ((horizon - last.step) * (i + 1)) / 40
+      return { x: x / perEpoch, y: fit.a * x ** -fit.b }
+    }) : []
+    return { fit, errFit, perEpoch, line: fit ? [{ x: last.epoch, y: fit.a * last.step ** -fit.b }, ...line] : [] }
+  }, [project, session?.steps, session?.epochPts, session?.totalSteps])
   useEffect(() => {
     if (session?.status !== 'running') return
     setNow(Date.now())
@@ -408,6 +479,19 @@ function LivePanel({ task }: { task?: string }) {
   }
   const eta = rate > 0 && session.totalSteps && lastStep ? (session.totalSteps - lastStep.step) / rate : null
   const bestVal = session.epochPts.length ? Math.max(...session.epochPts.map((e) => e.val_acc)) : null
+  const time = bottleneck(lastEp)
+  // Seconds per epoch so far, to turn projected epochs into time.
+  const secPerEpoch = session.epochPts.length ? session.epochPts.reduce((a, e) => a + e.seconds, 0) / session.epochPts.length : null
+  const reachLossStep = proj ? powerLawReach(proj.fit, targetLoss ?? 0) : null
+  const reachLossEpoch = reachLossStep != null && proj ? reachLossStep / proj.perEpoch : null
+  const reachAccEpoch = proj && targetAcc != null ? powerLawReach(proj.errFit, 1 - targetAcc / 100) : null
+  const eta2 = (ep: number | null) => {
+    if (ep == null || !lastStep) return null
+    const more = ep - lastStep.epoch
+    if (more <= 0) return 'already there'
+    if (more > 100000) return 'not in any reasonable time on this trend'
+    return `about ${more < 10 ? more.toFixed(1) : Math.round(more).toLocaleString()} more epoch${more === 1 ? '' : 's'}${secPerEpoch ? ` (${fmtDur(more * secPerEpoch)})` : ''}`
+  }
   const statusCls = session.status === 'running' ? 'accent' : session.status === 'completed' ? 'ok' : session.status === 'failed' ? 'bad' : 'warn'
 
   return (
@@ -455,13 +539,78 @@ function LivePanel({ task }: { task?: string }) {
         {session.summary?.test_acc != null && <div className="kpi"><div className="k">Test acc</div><div className="v" style={{ color: 'var(--accent)' }}>{fmtPct(session.summary.test_acc)}</div></div>}
       </div>
 
-      <LiveCharts steps={session.steps} epochs={session.epochPts} task={task} />
+      <LiveCharts steps={session.steps} epochs={session.epochPts} task={task} projection={proj?.line} />
 
+      <div className="panel">
+        <div className="panel-body col" style={{ gap: 8 }}>
+          <div className="row wrap">
+            <label className="switch"><input type="checkbox" checked={project} onChange={(e) => setProject(e.target.checked)} /><span className="track" /></label>
+            <b className="small">Projection</b>
+            <span className="small muted grow">Extend the current trend to see how long a target would take.</span>
+          </div>
+          {project && (
+            proj?.fit ? (
+              <>
+                <div className="row wrap small">
+                  <span>Training loss of</span>
+                  <NumInput style={{ width: 80 }} value={targetLoss} min={0} placeholder="e.g. 0.05" onChange={setTargetLoss} />
+                  <span className="muted">→ {targetLoss ? (reachLossEpoch == null ? 'the trend is not falling toward it' : eta2(reachLossEpoch)) : 'type a target'}</span>
+                </div>
+                <div className="row wrap small">
+                  <span>Validation accuracy of</span>
+                  <NumInput style={{ width: 80 }} value={targetAcc} min={0} max={100} placeholder="e.g. 99" onChange={setTargetAcc} />
+                  <span className="muted">% → {targetAcc ? (proj.errFit ? (reachAccEpoch == null ? 'the trend is not rising toward it' : eta2(reachAccEpoch)) : 'needs at least 3 finished epochs') : 'type a target'}</span>
+                </div>
+                <div className="tiny faint">A rough guide only: it assumes the loss keeps following the same power-law trend (the dashed line). A learning-rate schedule that decays to zero, or overfitting, will bend the real curve away from it.</div>
+              </>
+            ) : <div className="small muted">Needs a little more training data to fit a trend.</div>
+          )}
+        </div>
+      </div>
+
+      {time && (
+        <div className="panel"><div className="panel-body">
+          <div className="row small"><b className="grow">Where the time goes</b><span className="muted">{lastEp ? `${fmtDur(lastEp.seconds)} per epoch` : ''}</span></div>
+          <div className="time-bar" style={{ marginTop: 6 }}>{time.parts.map((p) => <div key={p.label} style={{ width: `${p.frac * 100}%`, background: p.color }} title={`${p.label}: ${(p.frac * 100).toFixed(0)}%`} />)}</div>
+          <div className="row wrap tiny muted" style={{ gap: 10, marginTop: 4 }}>{time.parts.map((p) => <span key={p.label}><span style={{ color: p.color }}>■</span> {p.label} {(p.frac * 100).toFixed(0)}%</span>)}</div>
+        </div></div>
+      )}
+
+      {session.kind === 'seeds' && <SeedsTable />}
       {session.kind === 'tune' && <TrialsTable />}
 
       {session.status !== 'running' && session.kind === 'train' && (
         <div className="row">
           <button onClick={() => setTab('leaderboard')}>View on leaderboard →</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SeedsTable() {
+  const { session } = useStore()
+  if (!session) return null
+  const st = session.seedStats
+  const pm = (k: string) => (st?.[k]?.mean != null ? `${(st[k].mean! * 100).toFixed(2)}% ± ${((st[k].std ?? 0) * 100).toFixed(2)}` : '-')
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <h3 className="grow">Seeds {session.seedRuns.length}/{session.seedTotal ?? '?'}</h3>
+        {st && <span className="small">validation <b className="ok">{pm('best_val_acc')}</b> · test <b>{pm('test_acc')}</b></span>}
+      </div>
+      <table className="tbl">
+        <thead><tr><th>Seed</th><th className="right">Best val acc</th><th className="right">Test acc</th></tr></thead>
+        <tbody>
+          {session.seedRuns.map((r) => (
+            <tr key={r.index}><td className="mono">{r.seed}</td><td className="num">{fmtPct(r.best_val_acc)}</td><td className="num">{fmtPct(r.test_acc)}</td></tr>
+          ))}
+          {session.status === 'running' && <tr><td colSpan={3} className="small muted"><span className="spinner" style={{ width: 10, height: 10 }} /> {session.message}</td></tr>}
+        </tbody>
+      </table>
+      {st && (
+        <div className="panel-body small muted">
+          The same model, trained {st.best_val_acc?.n} times with different random seeds, scored between {fmtPct(st.best_val_acc?.min)} and {fmtPct(st.best_val_acc?.max)}. A difference between two models that is smaller than this spread could just be luck.
         </div>
       )}
     </div>

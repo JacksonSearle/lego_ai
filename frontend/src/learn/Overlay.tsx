@@ -1,28 +1,35 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { api } from '../api'
 import { useStore } from '../store'
-import { AVATARS, LEVELS, MAX_LEVEL, QUESTS, levelFor, type Quest } from './curriculum'
+import type { ProfileInfo } from '../types'
+import { ACHIEVEMENTS, AVATARS, LEVELS, MAX_LEVEL, QUESTS, levelFor, type Quest } from './curriculum'
+import { startDemo } from './Demo'
+import { Achievements } from './Guidebook'
 import { useLearn } from './LearnContext'
 import { LESSONS } from './lessons'
 
 // ---------------------------------------------------------------------------
-// Top bar: avatar, level, XP
+// Top bar: quests, avatar, level, XP
 // ---------------------------------------------------------------------------
+type ProfileTab = 'profile' | 'achievements' | 'profiles'
+
 export function ProfileBar() {
   const { progress, access, ready, setGuideView } = useLearn()
   const { setTab } = useStore()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState<ProfileTab | null>(null)
   if (!ready || !progress.mode) return null
   const lvl = levelFor(progress.xp)
   const next = LEVELS.find((l) => l.level === lvl.level + 1)
   const frac = next ? (progress.xp - lvl.xp) / (next.xp - lvl.xp) : 1
   return (
     <>
+      <Quests />
       <div className="profile-bar">
-        <button className="avatar-btn" onClick={() => setOpen(true)} title="Profile, avatars & settings">{progress.avatar}</button>
+        <button className="avatar-btn" onClick={() => setOpen('profile')} title="Profile, achievements & settings">{progress.avatar}</button>
         {access.unlocked ? (
-          <span className="pill accent" title="Everything is unlocked">🔓 All unlocked</span>
+          <button className="pill accent" style={{ cursor: 'pointer' }} onClick={() => setOpen('profile')} title="Everything is unlocked. Click for your profile.">🔓 All unlocked</button>
         ) : (
-          <div className="xp" title={`${progress.xp} XP${next ? `, ${next.xp - progress.xp} to level ${next.level}` : ''}`}>
+          <button className="xp" data-tour="xp" onClick={() => setOpen('achievements')} title={`${progress.xp} XP${next ? `, ${next.xp - progress.xp} to level ${next.level}` : ''}. Click for achievements.`}>
             <div className="row" style={{ gap: 6 }}>
               <span className="lvl">Lv {lvl.level}</span>
               <span className="small">{lvl.title}</span>
@@ -30,75 +37,133 @@ export function ProfileBar() {
               <span className="tiny mono muted">{progress.xp}{next ? ` / ${next.xp}` : ''} XP</span>
             </div>
             <div className="xp-track"><div style={{ width: `${frac * 100}%` }} /></div>
-          </div>
+          </button>
         )}
         {!access.unlocked && access.skillPoints > 0 && (
           <button className="pill accent sp-btn" onClick={() => { setGuideView('skills'); setTab('guide') }} title="Spend skill points in the Skill Tree">⭐ {access.skillPoints}</button>
         )}
       </div>
-      {open && <ProfileModal onClose={() => setOpen(false)} />}
+      {open && <ProfileModal tab={open} setTab={setOpen} onClose={() => setOpen(null)} />}
     </>
   )
 }
 
-function ProfileModal({ onClose }: { onClose: () => void }) {
+function ProfileModal({ tab, setTab: setPane, onClose }: { tab: ProfileTab; setTab: (t: ProfileTab) => void; onClose: () => void }) {
   const { progress, access, setAvatar, chooseMode, reset, setOverviewOpen } = useLearn()
   const { setTab } = useStore()
   const s = progress.stats
+  const earned = Object.keys(progress.achievements).length
   return (
     <div className="modal-back" onClick={onClose}>
-      <div className="modal" style={{ width: 'min(640px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ width: 'min(760px, 100%)' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <span style={{ fontSize: 28 }}>{progress.avatar}</span>
           <div className="grow">
             <h2>{access.unlocked ? 'Expert mode' : `Level ${access.level} · ${levelFor(progress.xp).title}`}</h2>
             <div className="small muted">{access.unlocked ? 'Everything unlocked' : `${progress.xp} XP`}</div>
           </div>
+          <div className="seg">
+            <button className={tab === 'profile' ? 'on' : ''} onClick={() => setPane('profile')}>Profile</button>
+            <button className={tab === 'achievements' ? 'on' : ''} onClick={() => setPane('achievements')}>🏆 Achievements {earned}/{ACHIEVEMENTS.length}</button>
+            <button className={tab === 'profiles' ? 'on' : ''} onClick={() => setPane('profiles')}>Switch profile</button>
+          </div>
           <button className="ghost" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body col" style={{ gap: 16 }}>
-          <div>
-            <h4 style={{ marginBottom: 8 }}>Choose your avatar</h4>
-            <div className="avatar-grid">
-              {AVATARS.map((a) => {
-                const ok = access.unlocked || access.level >= a.level
-                return (
-                  <button key={a.icon} className={`avatar-opt ${progress.avatar === a.icon ? 'on' : ''}`} disabled={!ok} onClick={() => setAvatar(a.icon)} title={ok ? a.name : `Unlocks at level ${a.level}`}>
-                    <span style={{ fontSize: 26, filter: ok ? 'none' : 'grayscale(1) opacity(0.3)' }}>{a.icon}</span>
-                    <span className="tiny muted">{ok ? a.name : `Lv ${a.level}`}</span>
-                  </button>
-                )
-              })}
+        {tab === 'achievements' && <div className="modal-body"><Achievements /></div>}
+        {tab === 'profiles' && <div className="modal-body"><Profiles /></div>}
+        {tab === 'profile' && (
+          <div className="modal-body col" style={{ gap: 16 }}>
+            <div>
+              <h4 style={{ marginBottom: 8 }}>Choose your avatar</h4>
+              <div className="avatar-grid">
+                {AVATARS.map((a) => {
+                  const ok = access.unlocked || access.level >= a.level
+                  return (
+                    <button key={a.icon} className={`avatar-opt ${progress.avatar === a.icon ? 'on' : ''}`} disabled={!ok} onClick={() => setAvatar(a.icon)} title={ok ? a.name : `Unlocks at level ${a.level}`}>
+                      <span style={{ fontSize: 26, filter: ok ? 'none' : 'grayscale(1) opacity(0.3)' }}>{a.icon}</span>
+                      <span className="tiny muted">{ok ? a.name : `Lv ${a.level}`}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="kpis">
+              <div className="kpi"><div className="k">Runs</div><div className="v">{s.runs}</div></div>
+              <div className="kpi"><div className="k">Lessons</div><div className="v">{s.lessons.length}/{LESSONS.length}</div></div>
+              <div className="kpi"><div className="k">Badges</div><div className="v">{earned}</div></div>
+              <div className="kpi"><div className="k">Best MNIST</div><div className="v">{s.best.mnist ? `${(s.best.mnist * 100).toFixed(1)}%` : '-'}</div></div>
+            </div>
+            <div className="card col" style={{ gap: 8 }}>
+              <h4>Learning mode</h4>
+              {access.unlocked ? (
+                <>
+                  <div className="small muted">You’re in expert mode: every block, page and setting is available and all badges are yours.</div>
+                  <div className="row wrap">
+                    <button onClick={() => { onClose(); setOverviewOpen(true) }}>Replay the quick tour</button>
+                    <button onClick={() => { if (confirm('Switch this profile to guided learning? It will start at level 1 with features unlocking as you go.')) { reset(); setTimeout(() => chooseMode('guided'), 50); setTab('lab'); onClose() } }}>Switch to guided learning</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="small muted">Already know your way around? Unlock every block, page and setting at once. You’ll get all badges and the XP bar goes away. (To keep this progress too, make a second profile under “Switch profile” instead.)</div>
+                  <div className="row wrap">
+                    <button className="primary" onClick={() => { if (confirm('Unlock everything? This skips the guided path.')) { chooseMode('unlocked'); onClose(); setOverviewOpen(true) } }}>🔓 Unlock everything</button>
+                    <button className="danger" onClick={() => { if (confirm('Reset all XP, levels, skills and badges for this profile? (Your trained models are kept.)')) { reset(); onClose() } }}>Reset progress</button>
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="card col" style={{ gap: 8 }}>
+              <h4>More</h4>
+              <div className="row wrap">
+                <button onClick={() => { setTab('lab'); onClose() }} title="The simple one-layer playground from level 1">🧪 Open Lab 1</button>
+                <button onClick={() => { onClose(); startDemo() }} title="An automatic, narrated walkthrough of the whole app in a temporary profile">🎓 Teacher demo (about 10 minutes)</button>
+              </div>
             </div>
           </div>
-          <div className="kpis">
-            <div className="kpi"><div className="k">Runs</div><div className="v">{s.runs}</div></div>
-            <div className="kpi"><div className="k">Lessons</div><div className="v">{s.lessons.length}/{LESSONS.length}</div></div>
-            <div className="kpi"><div className="k">Badges</div><div className="v">{Object.keys(progress.achievements).length}</div></div>
-            <div className="kpi"><div className="k">Best MNIST</div><div className="v">{s.best.mnist ? `${(s.best.mnist * 100).toFixed(1)}%` : '-'}</div></div>
-          </div>
-          <div className="card col" style={{ gap: 8 }}>
-            <h4>Learning mode</h4>
-            {access.unlocked ? (
-              <>
-                <div className="small muted">You’re in expert mode: every block, page and setting is available and all badges are yours.</div>
-                <div className="row wrap">
-                  <button onClick={() => { onClose(); setOverviewOpen(true) }}>Replay the quick tour</button>
-                  <button onClick={() => { if (confirm('Switch to guided learning? You’ll start at level 1 with features unlocking as you go.')) { reset(); setTimeout(() => chooseMode('guided'), 50); setTab('lab'); onClose() } }}>Switch to guided learning</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="small muted">Already know your way around? Unlock every block, page and setting at once. You’ll get all badges and the XP bar goes away.</div>
-                <div className="row wrap">
-                  <button className="primary" onClick={() => { if (confirm('Unlock everything? This skips the guided path.')) { chooseMode('unlocked'); onClose(); setOverviewOpen(true) } }}>🔓 Unlock everything</button>
-                  <button className="danger" onClick={() => { if (confirm('Reset all XP, levels, skills and badges? (Your trained models are kept.)')) { reset(); onClose() } }}>Reset progress</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        )}
       </div>
+    </div>
+  )
+}
+
+/** Several learners (or one guided profile and one unlocked one) can share an install. */
+function Profiles() {
+  const [list, setList] = useState<ProfileInfo[]>([])
+  const [name, setName] = useState('')
+  const load = () => api.profiles().then((r) => setList(r.profiles))
+  useEffect(() => { load() }, [])
+  const switchTo = async (id: string) => {
+    await api.activateProfile(id)
+    location.reload()
+  }
+  return (
+    <div className="col" style={{ gap: 12 }}>
+      <div className="small muted">Each profile has its own level, XP, skills and achievements. Trained models and the leaderboard are shared by everyone on this computer.</div>
+      {list.map((p) => (
+        <div key={p.id} className={`badge ${p.active ? 'earned' : ''}`}>
+          <div style={{ fontSize: 26 }}>{p.avatar}</div>
+          <div className="grow">
+            <div style={{ fontWeight: 650 }}>{p.name} {p.demo && <span className="pill">demo</span>}</div>
+            <div className="small muted">{p.mode === 'unlocked' ? 'Everything unlocked' : p.mode === 'guided' ? `Guided · level ${levelFor(p.xp).level} · ${p.xp} XP` : 'Not started yet'}</div>
+          </div>
+          {p.active ? <span className="pill ok">current</span> : <button className="sm primary" onClick={() => switchTo(p.id)}>Switch</button>}
+          <button className="sm ghost" title="Rename" onClick={async () => { const n = prompt('Profile name', p.name); if (n) { await api.renameProfile(p.id, n); load() } }}>✎</button>
+          {list.length > 1 && (
+            <button className="sm ghost danger" title="Delete this profile" onClick={async () => {
+              if (!confirm(`Delete the profile “${p.name}” and its progress?`)) return
+              await api.deleteProfile(p.id)
+              if (p.active) location.reload()
+              else load()
+            }}>🗑</button>
+          )}
+        </div>
+      ))}
+      <div className="row">
+        <input className="grow" placeholder="New profile name" value={name} onChange={(e) => setName(e.target.value)} />
+        <button className="primary" disabled={!name.trim()} onClick={async () => { await api.createProfile(name.trim()); location.reload() }}>+ Create and switch</button>
+      </div>
+      <div className="tiny faint">A new profile starts at the welcome screen, where you choose guided learning or everything unlocked.</div>
     </div>
   )
 }
@@ -182,8 +247,14 @@ export function Spotlight() {
   const [rect, setRect] = useState<DOMRect | null>(null)
   useLayoutEffect(() => {
     if (!spot) return setRect(null)
+    let scrolled = false
     const measure = () => {
       const el = document.querySelector(`[data-tour="${spot.id}"]`)
+      // The target may be inside a scrolling panel: bring it into view once.
+      if (el && !scrolled) {
+        scrolled = true
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      }
       setRect(el ? el.getBoundingClientRect() : null)
     }
     measure()
@@ -209,68 +280,68 @@ export function Spotlight() {
 }
 
 // ---------------------------------------------------------------------------
-// Tutor: the quest checklist for the current level
+// Quests: a dropdown in the top bar (so nothing floats over the page)
 // ---------------------------------------------------------------------------
-export function Tutor() {
+function Quests() {
   const { progress, access, openLesson, setSpot, ready, setGuideView } = useLearn()
   const { setTab } = useStore()
-  const [open, setOpen] = useState(() => localStorage.getItem('lego-ai/tutor-open') !== '0')
+  const [open, setOpen] = useState(false)
   const [showOld, setShowOld] = useState(false)
-  useEffect(() => localStorage.setItem('lego-ai/tutor-open', open ? '1' : '0'), [open])
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
   if (!ready || progress.mode !== 'guided') return null
+  // Once every quest in the game is finished there is nothing left to show: go away for good.
+  if (!QUESTS.some((q) => !progress.quests.includes(q.id))) return null
   const level = access.level
   const quests = QUESTS.filter((q) => q.level === level)
+  const todo = quests.filter((q) => !progress.quests.includes(q.id))
   const backlog = QUESTS.filter((q) => q.level < level && !progress.quests.includes(q.id))
-  const done = quests.filter((q) => progress.quests.includes(q.id)).length
+  const done = quests.length - todo.length
   const next = LEVELS.find((l) => l.level === level + 1)
-  // Once every quest in the game is finished there is nothing left to show: go away for good.
-  const anyLeft = QUESTS.some((q) => !progress.quests.includes(q.id))
-  if (!anyLeft) return null
   const show = (q: Quest) => {
+    setOpen(false)
     if (q.go?.lesson) openLesson(q.go.lesson)
     if (q.go?.spot === 'skilltree') setGuideView('skills')
     if (q.go?.tab) setTab(q.go.tab)
     if (q.go?.spot) setTimeout(() => setSpot({ id: q.go!.spot!, text: q.how }), 150)
   }
+  const row = (q: Quest, brief = false) => (
+    <div key={q.id} className="quest">
+      <span className="quest-check" />
+      <div className="grow">
+        <div className="quest-title">{q.title} <span className="tiny mono" style={{ color: 'var(--accent)' }}>+{q.xp}</span></div>
+        {!brief && <div className="tiny muted">{q.how}</div>}
+      </div>
+      {q.go && <button className="sm" onClick={() => show(q)}>Show me</button>}
+    </div>
+  )
   return (
-    <div className={`tutor ${open ? 'open' : ''}`}>
-      <button className="tutor-head" onClick={() => setOpen(!open)}>
+    <div className="quests" ref={box}>
+      <button className={`quests-btn ${open ? 'on' : ''}`} onClick={() => setOpen(!open)} title="What to try next">
         <span>🎯</span>
-        <b className="grow" style={{ textAlign: 'left' }}>Level {level} quests</b>
+        <span className="quests-next">{todo[0] ? `Next: ${todo[0].title}` : 'Quests'}</span>
         <span className="tiny mono">{done}/{quests.length}</span>
-        <span className="tiny">{open ? '▾' : '▴'}</span>
       </button>
       {open && (
-        <div className="tutor-body">
-          {quests.filter((q) => !progress.quests.includes(q.id)).map((q) => (
-            <div key={q.id} className="quest">
-              <span className="quest-check" />
-              <div className="grow">
-                <div className="quest-title">{q.title} <span className="tiny mono" style={{ color: 'var(--accent)' }}>+{q.xp}</span></div>
-                <div className="tiny muted">{q.how}</div>
-              </div>
-              {q.go && <button className="sm" onClick={() => show(q)}>Show me</button>}
-            </div>
-          ))}
-          {done > 0 && <div className="tiny ok" style={{ padding: '6px 2px' }}>✓ {done} completed this level</div>}
+        <div className="quests-pop">
+          <div className="row" style={{ padding: '4px 2px 8px' }}><b className="grow">Level {level} quests</b><span className="tiny muted">{done} of {quests.length} done</span></div>
+          {todo.map((q) => row(q))}
+          {todo.length === 0 && <div className="small ok" style={{ padding: '6px 2px' }}>✓ All of this level’s quests are done.</div>}
           {backlog.length > 0 && (
             <>
               <button className="ghost sm" style={{ width: '100%', justifyContent: 'flex-start' }} onClick={() => setShowOld(!showOld)}>
                 {showOld ? '▾' : '▸'} {backlog.length} optional quest{backlog.length > 1 ? 's' : ''} from earlier levels
               </button>
-              {showOld && backlog.map((q) => (
-                <div key={q.id} className="quest">
-                  <span className="quest-check" />
-                  <div className="grow"><div className="quest-title">{q.title} <span className="tiny mono" style={{ color: 'var(--accent)' }}>+{q.xp}</span></div></div>
-                  {q.go && <button className="sm" onClick={() => show(q)}>Show me</button>}
-                </div>
-              ))}
+              {showOld && backlog.map((q) => row(q, true))}
             </>
           )}
           {next ? (
-            <div className="tiny muted tutor-next">
-              <b>Level {next.level}</b> ({next.xp - progress.xp} XP to go): {next.news[0] ?? 'new avatar'}
-            </div>
+            <div className="tiny muted tutor-next"><b>Level {next.level}</b> ({next.xp - progress.xp} XP to go): {next.news[0] ?? 'new avatar'}</div>
           ) : level >= MAX_LEVEL && <div className="tiny muted tutor-next">Max level. Legend!</div>}
         </div>
       )}
@@ -308,6 +379,9 @@ export function Onboarding() {
                 <span className="pill">Expert mode</span>
               </button>
             </div>
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <button className="ghost" onClick={() => startDemo()}>🎓 I’m a teacher: show me a 10-minute demo of everything</button>
+            </div>
           </div>
         ) : (
           <div className="modal-body col" style={{ gap: 14 }}>
@@ -343,7 +417,6 @@ const TOUR = [
   { tab: 'train', spot: 'optuna', title: 'Optuna', text: 'Switch on to give ranges instead of values and run a pruned TPE search. Every trial is a reproducible run.' },
   { tab: 'leaderboard', spot: 'leaderboard', title: 'Leaderboard', text: 'Rank runs, inspect curves and configs, retrain from scratch (bit-exact reproduction check), resume, download weights.' },
   { tab: 'custom', spot: 'custom-new', title: 'Custom blocks', text: 'Write nn.Modules with @lego_block and they join the palette. Their source is embedded in run configs.' },
-  { tab: 'history', spot: 'timeline', title: 'History of AI', text: 'A self-running tour of 12 landmark architectures on MNIST, with papers.' },
   { tab: 'guide', spot: 'guide-nav', title: 'Guidebook', text: 'Lessons for every page, action and block: animations, annotated PyTorch code, papers. Each page’s “?” button jumps to its guide.' },
 ]
 

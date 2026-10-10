@@ -11,3 +11,4 @@ backend/data/runs/
 backend/data/studies/
 backend/data/history.json
 backend/data/progress.json
+backend/data/profiles.json

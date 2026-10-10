@@ -4,13 +4,15 @@ import { BEGINNER_TRAINING, HP_FEATURE } from './learn/curriculum'
 import type { TrainInfo } from './learn/engine'
 import { useLearn } from './learn/LearnContext'
 import type {
-  BlockInst, BlockSpec, DatasetInfo, EpochPoint, InspectResult, JobEvent, Meta, RunConfig, StepPoint, Summary, Training,
+  BlockInst, BlockSpec, DatasetInfo, EpochPoint, InspectResult, JobEvent, Meta, RunConfig, Stat, StepPoint, Summary, Training,
 } from './types'
 
 export interface Draft {
   name: string
   dataset: string
   train_subset: number | null
+  /** Text datasets: tokens per example (null = the dataset's default). */
+  seq_len?: number | null
   blocks: BlockInst[]
   training: Training
   custom_blocks?: RunConfig['custom_blocks']
@@ -34,9 +36,11 @@ export interface TrialRow {
   state: string
 }
 
+export interface SeedRow { index: number; seed: number; run_id: string; best_val_acc: number | null; test_acc: number | null }
+
 export interface Session {
   jobId: string
-  kind: 'train' | 'tune'
+  kind: 'train' | 'tune' | 'seeds'
   status: string
   runId: string | null
   name: string
@@ -56,6 +60,10 @@ export interface Session {
   currentTrial: number | null
   best: { trial: number; value: number; params: Record<string, unknown>; run_id: string } | null
   metric?: string
+  /** 'seeds' jobs: one row per finished seed, and the group's mean/spread at the end. */
+  seedRuns: SeedRow[]
+  seedTotal: number | null
+  seedStats: Record<string, Stat> | null
   startedAt: number
   learn?: LearnMeta
   reported?: boolean
@@ -77,7 +85,7 @@ interface Store {
   offline: boolean
   refreshBlocks: () => Promise<void>
   session: Session | null
-  attachJob: (jobId: string, kind: 'train' | 'tune', name: string, runId?: string | null, learn?: LearnMeta) => void
+  attachJob: (jobId: string, kind: Session['kind'], name: string, runId?: string | null, learn?: LearnMeta) => void
   clearSession: () => void
   toConfig: () => RunConfig
   effectiveTraining: (t: Training) => Training
@@ -108,10 +116,10 @@ function loadDraft(): Draft | null {
   }
 }
 
-function emptySession(jobId: string, kind: 'train' | 'tune', name: string, runId: string | null): Session {
+function emptySession(jobId: string, kind: Session['kind'], name: string, runId: string | null): Session {
   return {
     jobId, kind, name, runId, status: 'running', message: 'Starting…', params: null, epochs: null, totalSteps: null, trainExamples: null, baseStep: 0, device: null,
-    steps: [], epochPts: [], summary: null, error: null, trials: [], currentTrial: null, best: null, startedAt: Date.now(),
+    steps: [], epochPts: [], summary: null, error: null, trials: [], currentTrial: null, best: null, seedRuns: [], seedTotal: null, seedStats: null, startedAt: Date.now(),
   }
 }
 
@@ -135,7 +143,7 @@ function reduce(s: Session, e: JobEvent): Session {
     case 'epoch':
       return { ...s, epochPts: [...s.epochPts, e as unknown as EpochPoint] }
     case 'done':
-      return s.kind === 'tune' ? s : { ...s, summary: e.summary as Summary, status: e.status as string, message: e.status === 'stopped' ? 'Paused' : `Run ${e.status}` }
+      return s.kind !== 'train' ? s : { ...s, summary: e.summary as Summary, status: e.status as string, message: e.status === 'stopped' ? 'Paused' : `Run ${e.status}` }
     case 'error':
       return { ...s, error: e.message as string }
     case 'study_start':
@@ -149,6 +157,15 @@ function reduce(s: Session, e: JobEvent): Session {
       const row = e as unknown as TrialRow & { best: Session['best'] }
       return { ...s, trials: [...s.trials.filter((t) => t.trial !== row.trial), row], best: row.best }
     }
+    case 'seed_start':
+      return {
+        ...s, currentTrial: (e.index as number) + 1, seedTotal: e.n as number, runId: e.run_id as string, steps: [], epochPts: [],
+        message: `Seed ${e.seed} (${(e.index as number) + 1} of ${e.n})`,
+      }
+    case 'seed_end':
+      return { ...s, seedRuns: [...s.seedRuns, e as unknown as SeedRow] }
+    case 'seeds_end':
+      return { ...s, seedStats: e.stats as Record<string, Stat> }
     case 'job_end':
       return { ...s, status: e.status as string, error: (e.error as string) ?? s.error, message: s.kind === 'train' && e.status === 'stopped' ? 'Paused' : `Job ${e.status}` }
     default:
@@ -203,11 +220,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [draft])
 
   // Debounced shape inference whenever the architecture or dataset changes.
-  const archKey = JSON.stringify([draft.dataset, draft.blocks, blockList.length])
+  const archKey = JSON.stringify([draft.dataset, draft.seq_len ?? null, draft.blocks, blockList.length])
   useEffect(() => {
     const h = setTimeout(() => {
       api
-        .inspect(draft.dataset, { blocks: draft.blocks })
+        .inspect(draft.dataset, { blocks: draft.blocks }, draft.seq_len)
         .then((r) => { setInspect(r); setOffline(false) })
         .catch((e) => {
           setInspect(null)
@@ -245,7 +262,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setHist((h) => (h.future.length ? { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) } : h))
   }, [])
 
-  const attachJob = useCallback((jobId: string, kind: 'train' | 'tune', name: string, runId: string | null = null, learn?: LearnMeta) => {
+  const attachJob = useCallback((jobId: string, kind: Session['kind'], name: string, runId: string | null = null, learn?: LearnMeta) => {
     unsub.current?.()
     setSession({ ...emptySession(jobId, kind, name, runId), learn })
     unsub.current = streamJob(jobId, (e) => setSession((s) => (s && s.jobId === jobId ? reduce(s, e) : s)))
@@ -259,8 +276,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Re-attach to a training/tuning job that is still running (e.g. after a page reload).
   useEffect(() => {
     api.jobs().then((jobs) => {
-      const j = jobs.find((x) => x.kind === 'train' || x.kind === 'tune')
-      if (j) attachJob(j.id, j.kind as 'train' | 'tune', String(j.meta.name ?? 'Run'), (j.meta.run_id as string) ?? null)
+      const j = jobs.find((x) => x.kind === 'train' || x.kind === 'tune' || x.kind === 'seeds')
+      if (j) attachJob(j.id, j.kind as Session['kind'], String(j.meta.name ?? 'Run'), (j.meta.run_id as string) ?? null)
     })
   }, [attachJob])
 
@@ -281,7 +298,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const toConfig = useCallback(
     (): RunConfig => ({
       name: draft.name,
-      dataset: { id: draft.dataset, train_subset: draft.train_subset },
+      dataset: { id: draft.dataset, train_subset: draft.train_subset, seq_len: draft.seq_len ?? null },
       architecture: { blocks: draft.blocks },
       training: effectiveTraining(draft.training),
       custom_blocks: draft.custom_blocks,
@@ -296,6 +313,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSession((s) => (s ? { ...s, reported: true } : s))
     if (session.kind === 'tune') {
       if (session.status === 'completed' && session.trials.length) flag('optuna')
+      return
+    }
+    if (session.kind === 'seeds') {
+      if (session.status === 'completed') flag('seeds')
       return
     }
     if (session.status !== 'completed' || !session.runId) return
@@ -326,6 +347,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         name: cfg.name,
         dataset: cfg.dataset.id,
         train_subset: cfg.dataset.train_subset ?? null,
+        seq_len: cfg.dataset.seq_len ?? null,
         blocks: cfg.architecture.blocks.map((b) => ({ ...b, id: b.id || newId(), repeat: b.repeat || 1 })),
         training: { ...(meta?.defaults ?? {}), ...cfg.training },
         custom_blocks: cfg.custom_blocks,

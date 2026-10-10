@@ -14,7 +14,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ..registry import BuildContext, Param, block, make_activation
+from ..registry import CURVE_XS, BuildContext, Param, block, make_activation
 
 
 class ShapeError(ValueError):
@@ -702,6 +702,43 @@ def build_activation(in_shape, fn):
     return make_activation(fn)
 
 
+class DrawnActivation(nn.Module):
+    """A piecewise-linear function through hand-placed points, extended in a straight line beyond them.
+
+    Written as a sum of ReLUs so it is exact, differentiable almost everywhere and runs on any device:
+    f(x) = y0 + s0·(x - x0) + Σ (s_i - s_{i-1})·relu(x - x_i)
+    """
+
+    def __init__(self, ys):
+        super().__init__()
+        xs = torch.tensor(CURVE_XS)
+        ys = torch.tensor(ys, dtype=torch.float32)
+        slopes = (ys[1:] - ys[:-1]) / (xs[1:] - xs[:-1])
+        self.register_buffer("x0", xs[0])
+        self.register_buffer("y0", ys[0])
+        self.register_buffer("s0", slopes[0])
+        self.register_buffer("knots", xs[1:-1])
+        self.register_buffer("bends", slopes[1:] - slopes[:-1])
+
+    def forward(self, x):
+        out = self.y0 + self.s0 * (x - self.x0)
+        return out + (torch.relu(x.unsqueeze(-1) - self.knots) * self.bends).sum(-1)
+
+
+@block(
+    "drawn_activation",
+    "Drawn Activation",
+    category="Utility",
+    color="#fde047",
+    description="An activation function you draw yourself: drag the points to shape the curve. Put it after a Linear layer whose own activation is 'none'.",
+    params=[
+        Param("points", "curve", [max(0.0, x) for x in CURVE_XS], "Your function", "Drag the points up and down, or pick a starting shape. Beyond the ends the curve continues in a straight line."),
+    ],
+)
+def build_drawn_activation(in_shape, points):
+    return DrawnActivation(points)
+
+
 # ---------------------------------------------------------------------------
 # Head
 # ---------------------------------------------------------------------------
@@ -755,6 +792,7 @@ from ..registry import REGISTRY  # noqa: E402
 
 _META = {
     "linear": (["general"], 1958), "mlp": (["general"], 1986), "activation": (["general"], 1986),
+    "drawn_activation": (["general"], None),
     "dropout": (["general"], 2012), "flatten": (["general"], None), "classifier": (["general"], None),
     "batchnorm": (["general", "image"], 2015), "layernorm": (["general", "text"], 2016),
     "conv2d": (["image"], 1989), "depthwise_conv": (["image"], 2017), "resblock": (["image"], 2015),

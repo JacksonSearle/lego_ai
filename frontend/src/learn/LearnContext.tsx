@@ -30,7 +30,7 @@ interface Learn {
   setGuideView: (v: GuideView) => void
 }
 
-export type GuideView = 'lessons' | 'skills' | 'achievements'
+export type GuideView = 'lessons' | 'skills'
 
 const Ctx = createContext<Learn>(null as unknown as Learn)
 export const useLearn = () => useContext(Ctx)
@@ -51,11 +51,13 @@ export function LearnProvider({ children }: { children: ReactNode }) {
     setGuideViewState(v)
   }, [])
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const profileId = useRef<string | null>(null)
 
   useEffect(() => {
     fetch('/api/progress')
       .then((r) => r.json())
       .then((d) => {
+        profileId.current = d.profile ?? null
         if (d.progress) setProgress({ ...newProgress(), ...d.progress, stats: { ...newProgress().stats, ...d.progress.stats } })
         setReady(true)
       })
@@ -67,7 +69,9 @@ export function LearnProvider({ children }: { children: ReactNode }) {
     if (!ready) return
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      fetch('/api/progress', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(progress) })
+      // Always save to the profile this page loaded, even if another one has become active since.
+      const q = profileId.current ? `?profile=${encodeURIComponent(profileId.current)}` : ''
+      fetch(`/api/progress${q}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(progress) })
     }, 400)
   }, [progress, ready])
 

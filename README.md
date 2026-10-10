@@ -35,7 +35,7 @@ On first launch you choose between two modes:
   | 3 | the Builder: block panel, drag & drop, repeat, Dropout |
   | 4 | tensor shapes lesson + the "repair the broken model" challenge |
   | 5 | Train page (epochs, learning rate), Leaderboard, activation choice |
-  | 6 | Skill Tree, more datasets, History of AI |
+  | 6 | Skill Tree, more datasets |
   | 7 | optimizer, batch size + memory checker |
   | 8 | JSON import/export, resume, templates |
   | 9 | schedules, regularization, stability |
@@ -72,7 +72,27 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
 | **Train** | Hyperparameters (optimizer, LR, scheduler, warm-up, weight decay, dropout override, label smoothing, grad clipping, loss, augmentation, seed, device). **Check what fits in memory** tests a range of batch sizes. Pressing Train checks yours first and suggests alternatives if it won't fit. Turn on **Optuna** to give ranges instead of values. Live loss/accuracy/LR charts. Resume any checkpoint, or load a previous run's config to retrain from scratch. |
 | **Leaderboard** | All runs ranked by validation accuracy (or test acc, loss, params, time), filterable by dataset. Click a run for its curves, architecture, hyperparameters and environment, and to open it in the builder, **retrain from scratch** (marked ✓ reproduced when it matches exactly), resume, download the config, or download the weights. |
 | **Custom Blocks** | Write blocks in Python (CodeMirror editor). Save, and they show up in the palette like built-ins. |
-| **History of AI** | Plays by itself: trains 12 landmark architectures from 1805 to 2021 on the same MNIST budget, with a timeline, live charts, a separate demo leaderboard, and a paragraph and paper link for each. |
+
+## More features
+
+- **Profiles.** Several learners can share one install, or keep one guided profile and one
+  unlocked one (avatar menu → Switch profile). Runs and the leaderboard are shared. Stored in
+  `backend/data/profiles.json`.
+- **Teacher demo.** A narrated, self-advancing walkthrough of the whole app in about 10 minutes
+  (welcome screen, or avatar menu). It runs in a temporary profile and cleans up after itself.
+- **Pause and resume.** Pausing saves the exact position mid-epoch; resuming gives the same result
+  as never stopping.
+- **Seeds.** Train the same model with 3 or 5 seeds and get mean ± spread; the leaderboard shows the
+  group as one row ranked by the mean.
+- **Projection.** Extends the loss trend (a power-law fit) to estimate how long a target loss or
+  accuracy would take.
+- **Hardware tab.** Shows the CPU, memory and GPU, where each epoch's time goes, and a lesson on
+  getting access to bigger hardware.
+- **Sequence length** for the text datasets is configurable (AG News 8 to 256, Tiny Shakespeare
+  8 to 512; default 64).
+- **Dataset difficulty.** Each dataset is labeled easy, medium or hard, with baseline, good and
+  great accuracies to aim for.
+- **Drawn Activation.** A block whose activation function you sketch by hand.
 
 ## Blocks
 
@@ -171,11 +191,15 @@ backend/lego/
   rng.py          per-run random streams
   batchsize.py    memory probe
   tuner.py        Optuna studies
-  history.py      History-of-AI stages
+  seeds.py        multi-seed groups
+  hardware.py     hardware report
+  progress.py     learner profiles
+  probe_worker.py batch-size tests in a child process
   runs.py, jobs.py   storage, background jobs + event streams
   server.py       FastAPI app
 frontend/src/
-  pages/          Builder, Train, Leaderboard, CustomBlocks, History
+  pages/          Lab, Builder, Train, Leaderboard, CustomBlocks
+  learn/          curriculum, lessons, diagrams, guidebook, teacher demo
   components/     Brick, ParamField, LineChart, LiveCharts, ArchView
   store.tsx       app state, undo/redo, live job stream
 ```

@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import { api, downloadJSON } from '../api'
 import { MiniStack } from '../components/ArchView'
 import { Brick } from '../components/Brick'
+import { Difficulty, difficultyTag } from '../components/Difficulty'
 import { NumInput } from '../components/NumInput'
 import { ParamField } from '../components/ParamField'
 import { GuideButton } from '../learn/GuideButton'
-import { blockAllowed, skillForDataset } from '../learn/engine'
+import { LEVELS } from '../learn/curriculum'
+import { blockAllowed, skillForBlock, skillForDataset, type Access } from '../learn/engine'
 import { useLearn } from '../learn/LearnContext'
 import { lessonForBlock } from '../learn/lessons'
 import { QuickTrain } from './QuickTrain'
@@ -285,13 +287,20 @@ export function Builder() {
         <div className="canvas-toolbar">
           <input className="name" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }), { undoable: false })} title="Model name" />
           {access.has('datasets') ? (
-            <select value={draft.dataset} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value })); flag('datasetChanged') }} title="Dataset" data-tour="dataset">
+            <select value={draft.dataset} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value, seq_len: null })); flag('datasetChanged') }} title={dataset?.difficulty_note ?? 'Dataset'} data-tour="dataset">
               {datasets.map((d) => {
                 const ok = !access.datasets || access.datasets.has(d.id)
-                return <option key={d.id} value={d.id} disabled={!ok}>{ok ? d.name : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
+                return <option key={d.id} value={d.id} disabled={!ok}>{ok ? `${d.name} · ${difficultyTag(d).toLowerCase()}` : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
               })}
             </select>
           ) : <span className="pill" title="More datasets unlock at level 6">🔢 MNIST</span>}
+          {access.has('datasets') && dataset?.seq_len_range && (
+            <label className="row small muted" title={`How many tokens the model reads at once (${dataset.seq_len_range[0]} to ${dataset.seq_len_range[1]}). Longer gives more context but trains slower.`}>
+              length
+              <NumInput int style={{ width: 58 }} min={dataset.seq_len_range[0]} max={dataset.seq_len_range[1]} value={draft.seq_len ?? dataset.seq_len} emptyValue={dataset.seq_len}
+                onChange={(n) => setDraft((d) => ({ ...d, seq_len: n === dataset.seq_len ? null : n }))} />
+            </label>
+          )}
           {access.has('builder.templates') && <button onClick={() => setShowTemplates(true)} data-tour="templates">Templates</button>}
           <button className="ghost" onClick={() => { setDraft((d) => ({ ...d, blocks: [], custom_blocks: undefined })); setSelected(null) }} disabled={!blocks.length}>
             Clear
@@ -347,7 +356,7 @@ export function Builder() {
               })}
               {blocks.length === 0 && <div className={`drop-hint ${insertAt != null ? 'hot' : ''}`}>Drop here</div>}
               <div className="io-node">
-                <div className="io-label">INPUT · {dataset?.name} · {describeInput(dataset)}</div>
+                <div className="io-label">INPUT · {dataset?.name} · {describeInput(dataset && draft.seq_len ? { ...dataset, seq_len: draft.seq_len } : dataset)}</div>
                 <div className="io-shape">{fmtShape(inspect?.input_shape ?? dataset?.input_shape)}</div>
               </div>
             </div>
@@ -410,15 +419,32 @@ export function Builder() {
   )
 }
 
+/** What still has to be unlocked before a template can be used (empty = usable now). */
+function templateNeeds(t: Template, access: Access): string[] {
+  const needs = new Set<string>()
+  for (const b of t.blocks) {
+    if (blockAllowed(access, b.type)) continue
+    const skill = skillForBlock(b.type)
+    const grantedAt = skill && LEVELS.find((l) => l.grants?.includes(skill.id))?.level
+    needs.add(grantedAt ? `level ${grantedAt}` : skill ? `${skill.title} (Skill Tree)` : b.type)
+  }
+  return [...needs]
+}
+
 function TemplateGrid({ templates, specs, onUse }: { templates: Template[]; specs: Record<string, BlockSpec>; onUse: (t: Template) => void }) {
+  const { access } = useLearn()
+  const rows = templates.map((t) => ({ t, needs: templateNeeds(t, access) }))
+  // Usable templates first (recommended on top), locked ones after.
+  rows.sort((a, b) => Number(a.needs.length > 0) - Number(b.needs.length > 0) || Number(b.t.recommended) - Number(a.t.recommended))
   return (
     <div className="template-grid">
-      {[...templates].sort((a, b) => Number(b.recommended) - Number(a.recommended)).map((t) => (
-        <div key={t.id} className="template-card" onClick={() => onUse(t)}>
+      {rows.map(({ t, needs }) => (
+        <div key={t.id} className={`template-card ${needs.length ? 'locked' : ''}`} onClick={() => !needs.length && onUse(t)} title={needs.length ? `Unlock first: ${needs.join(', ')}` : undefined}>
           <div className="row">
-            <h3 className="grow">{t.name}</h3>
-            {t.recommended && <span className="pill accent">recommended</span>}
+            <h3 className="grow">{needs.length > 0 && '🔒 '}{t.name}</h3>
+            {t.recommended && !needs.length && <span className="pill accent">recommended</span>}
           </div>
+          {needs.length > 0 && <div className="small warn">Unlock first: {needs.join(', ')}</div>}
           <div className="row" style={{ alignItems: 'flex-end', gap: 14 }}>
             <MiniStack blocks={t.blocks} specs={specs} width={110} />
             <div className="small muted grow" style={{ paddingLeft: 18 }}>{t.description}</div>
@@ -536,7 +562,8 @@ function ModelSummary() {
       <div className="inspector-head">
         <h4>Dataset</h4>
         <h2 style={{ marginTop: 6 }}>{dataset?.name}</h2>
-        <p className="small muted" style={{ margin: '6px 0 0' }}>{dataset?.description}</p>
+        <p className="small muted" style={{ margin: '6px 0 8px' }}>{dataset?.description}</p>
+        <Difficulty dataset={dataset} />
       </div>
       <div className="inspector-body">
         <div className="stat-grid">

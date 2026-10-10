@@ -5,13 +5,16 @@ import { LineChart } from './LineChart'
 const C = { train: '#60a5fa', val: '#fb923c', lr: '#a78bfa' }
 
 /** Loss + accuracy (+ optional learning-rate) charts for one run. */
-export function LiveCharts({ steps, epochs, showLr = true, height = 230, task, stacked }: {
+export function LiveCharts({ steps, epochs, showLr = true, height = 230, task, stacked, projection }: {
   steps: StepPoint[]; epochs: EpochPoint[]; showLr?: boolean; height?: number; task?: string; stacked?: boolean
+  /** Optional extrapolated training loss (x in epochs), drawn dashed. */
+  projection?: { x: number; y: number }[]
 }) {
   const loss = useMemo(() => [
     { label: 'train loss', color: C.train, points: steps.map((s) => ({ x: s.epoch, y: s.loss })), width: 1.5 },
     { label: 'val loss', color: C.val, points: epochs.map((e) => ({ x: e.epoch, y: e.val_loss })), showPoints: true, width: 2.2 },
-  ], [steps, epochs])
+    ...(projection?.length ? [{ label: 'projected train loss', color: '#94a3b8', points: projection, dashed: true, width: 1.6 }] : []),
+  ], [steps, epochs, projection])
   const acc = useMemo(() => [
     { label: 'train acc', color: C.train, points: steps.map((s) => ({ x: s.epoch, y: s.acc })), width: 1.5 },
     { label: 'val acc', color: C.val, points: epochs.map((e) => ({ x: e.epoch, y: e.val_acc })), showPoints: true, width: 2.2 },

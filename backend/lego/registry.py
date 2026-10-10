@@ -50,12 +50,18 @@ def make_activation(name: str) -> nn.Module:
     return ACTIVATIONS[name]()
 
 
+# Hand-drawn curves ("curve" params) are sampled at these x positions; y is limited to ±CURVE_Y_LIMIT.
+CURVE_XS = [x / 2 for x in range(-6, 7)]  # -3.0, -2.5, ..., 3.0
+CURVE_Y_LIMIT = 4.0
+
+
 @dataclass
 class Param:
     """A user-tunable block parameter, rendered as a form field in the UI.
 
-    type: "int" | "float" | "bool" | "choice" | "activation" | "str"
+    type: "int" | "float" | "bool" | "choice" | "activation" | "str" | "curve"
     ``activation`` is a choice whose options come from ``ACTIVATIONS``.
+    ``curve`` is a hand-drawn function: a list of y values at the fixed x positions ``CURVE_XS``.
     """
 
     name: str
@@ -73,11 +79,19 @@ class Param:
         d["label"] = self.label or self.name.replace("_", " ").capitalize()
         if self.type == "activation":
             d["choices"] = ["none", *ACTIVATIONS.keys()]
+        if self.type == "curve":
+            d["xs"] = CURVE_XS
+            d["y_limit"] = CURVE_Y_LIMIT
         return d
 
     def coerce(self, value: Any) -> Any:
         if value is None:
             return self.default
+        if self.type == "curve":
+            ys = [max(-CURVE_Y_LIMIT, min(CURVE_Y_LIMIT, float(y))) for y in value]
+            if len(ys) != len(CURVE_XS):
+                raise ValueError(f"{self.label or self.name} needs {len(CURVE_XS)} points")
+            return ys
         if self.type == "int":
             v = int(value)
         elif self.type == "float":

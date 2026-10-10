@@ -1,4 +1,4 @@
-export type ParamType = 'int' | 'float' | 'bool' | 'choice' | 'activation' | 'str'
+export type ParamType = 'int' | 'float' | 'bool' | 'choice' | 'activation' | 'str' | 'curve'
 
 export interface ParamSpec {
   name: string
@@ -10,6 +10,9 @@ export interface ParamSpec {
   max?: number | null
   step?: number | null
   choices?: unknown[] | null
+  /** 'curve' params: the fixed x positions and the allowed y range. */
+  xs?: number[]
+  y_limit?: number
 }
 
 export interface BlockSpec {
@@ -50,6 +53,12 @@ export interface DatasetInfo {
   test_size: number | null
   augment: boolean
   cached: boolean
+  /** Text datasets: allowed [min, max] sequence length. */
+  seq_len_range: [number, number] | null
+  /** 1 easy, 2 medium, 3 hard */
+  difficulty: number
+  difficulty_note: string
+  targets: { baseline: number; good: number; great: number } | null
 }
 
 export interface HyperParam {
@@ -119,7 +128,7 @@ export interface RunConfig {
   format?: string
   version?: number
   name: string
-  dataset: { id: string; train_subset: number | null }
+  dataset: { id: string; train_subset: number | null; seq_len?: number | null }
   architecture: { blocks: BlockInst[] }
   training: Training
   custom_blocks?: Record<string, { source: string; sha256: string }>
@@ -150,6 +159,7 @@ export interface Summary {
 export interface StepPoint { step: number; epoch: number; loss: number; acc: number; lr: number }
 export interface EpochPoint {
   epoch: number; step: number; train_loss: number; train_acc: number; val_loss: number; val_acc: number; lr: number; seconds: number
+  data_seconds?: number; compute_seconds?: number; eval_seconds?: number
 }
 export interface Metrics { steps: StepPoint[]; epochs: EpochPoint[] }
 
@@ -164,11 +174,39 @@ export interface RunRow {
   error: string | null
   study: { id: string; trial: number; params: Record<string, unknown>; best: boolean } | null
   reproduce_of: string | null
+  group: SeedGroup | null
   training: Training
   n_blocks: number
   block_types: string[]
   has_checkpoint: boolean
 }
+
+export interface Stat { mean: number | null; std: number | null; min: number | null; max: number | null; n: number }
+
+/** Several runs of one config that differ only in their random seed. */
+export interface SeedGroup {
+  id: string
+  index: number
+  n: number
+  seeds: number[]
+  name: string
+  completed?: number
+  stats?: Record<string, Stat>
+}
+
+export interface Hardware {
+  cpu: string
+  cores: number
+  threads: number
+  ram_gb: number
+  ram_free_gb: number
+  swap_used_gb: number
+  gpus: { device: string; name: string; memory_gb: number; free_gb: number; shared: boolean }[]
+  best_device: string
+  notes: string[]
+}
+
+export interface ProfileInfo { id: string; name: string; active: boolean; mode: string | null; xp: number; avatar: string; demo: boolean }
 
 export interface RunDetail {
   id: string
@@ -182,6 +220,7 @@ export interface RunDetail {
   has_checkpoint: boolean
   reproduce_of?: string | null
   study?: RunRow['study']
+  group?: SeedGroup | null
 }
 
 export interface Job {
@@ -226,20 +265,6 @@ export interface ProbeResult {
   train_examples?: number
   /** Why some sizes could not be tested (time limit, test process failure). */
   note?: string | null
-}
-
-export interface HistoryStage {
-  id: string
-  year: number
-  title: string
-  era: string
-  blocks: BlockInst[]
-  training: Training
-  blurb: string
-  added: string
-  paper: { title: string; url: string; authors: string }
-  run: { id: string; status: string; summary: Summary } | null
-  metrics: Metrics | null
 }
 
 export interface Prediction {

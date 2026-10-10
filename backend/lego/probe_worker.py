@@ -35,7 +35,7 @@ def main():
     config, sizes, time_limit = req["config"], sorted(req["sizes"]), float(req.get("time_limit", 20))
     t = config["training"]
     device = resolve_device(t["device"])
-    data = datasets.load(config["dataset"]["id"])
+    data = datasets.load_for(config["dataset"])
     net, _info, _ = build_model(config, seed=0)
     apply_dropout_override(net, t.get("dropout"))
     net.to(device)

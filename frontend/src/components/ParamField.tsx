@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { CurveEditor } from './CurveEditor'
 import { NumInput } from './NumInput'
 
 interface FieldSpec {
@@ -11,6 +13,8 @@ interface FieldSpec {
   step?: number | null
   choices?: unknown[] | null
   nullable?: boolean
+  xs?: number[]
+  y_limit?: number
 }
 
 interface Props {
@@ -19,15 +23,21 @@ interface Props {
   onChange: (v: unknown) => void
   disabled?: boolean
   showDefault?: boolean
+  /** Hide the explanation behind a small “?” (hover shows it, click pins it) to save space. */
+  brief?: boolean
 }
 
 /** A labeled form control generated from a parameter spec (shared by block params and hyperparameters). */
-export function ParamField({ spec, value, onChange, disabled, showDefault = true }: Props) {
+export function ParamField({ spec, value, onChange, disabled, showDefault = true, brief }: Props) {
+  const [pinned, setPinned] = useState(false)
   const v = value === undefined ? spec.default : value
   const isDefault = JSON.stringify(v) === JSON.stringify(spec.default)
   const label = (
-    <span className="lbl row">
+    <span className="lbl row" title={brief ? spec.help : undefined}>
       {spec.label}
+      {brief && spec.help && (
+        <button type="button" className={`ghost sm help-toggle ${pinned ? 'on' : ''}`} onClick={(e) => { e.preventDefault(); setPinned(!pinned) }} title={spec.help}>?</button>
+      )}
       <span className="spacer" />
       {showDefault && !isDefault && (
         <button type="button" className="ghost sm" style={{ padding: '0 4px', fontSize: 11 }} onClick={() => onChange(spec.default)} title="Reset to default">
@@ -36,7 +46,7 @@ export function ParamField({ spec, value, onChange, disabled, showDefault = true
       )}
     </span>
   )
-  const help = spec.help ? (
+  const help = spec.help && (!brief || pinned) ? (
     <span className="help">
       {spec.help}
       {showDefault && spec.default !== null && spec.default !== undefined && spec.type !== 'bool' && (
@@ -53,7 +63,10 @@ export function ParamField({ spec, value, onChange, disabled, showDefault = true
             <input type="checkbox" checked={!!v} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
             <span className="track" />
           </label>
-          <span className="lbl" style={{ fontSize: 12, fontWeight: 600 }}>{spec.label}</span>
+          <span className="lbl" style={{ fontSize: 12, fontWeight: 600 }} title={brief ? spec.help : undefined}>{spec.label}</span>
+          {brief && spec.help && (
+            <button type="button" className={`ghost sm help-toggle ${pinned ? 'on' : ''}`} onClick={(e) => { e.preventDefault(); setPinned(!pinned) }} title={spec.help}>?</button>
+          )}
         </span>
         {help}
       </label>
@@ -71,6 +84,16 @@ export function ParamField({ spec, value, onChange, disabled, showDefault = true
         </select>
         {help}
       </label>
+    )
+  }
+
+  if (spec.type === 'curve') {
+    return (
+      <div className="field">
+        {label}
+        <CurveEditor xs={spec.xs ?? []} yLimit={spec.y_limit ?? 4} value={(v as number[]) ?? []} onChange={onChange} disabled={disabled} />
+        {spec.help && <span className="help">{spec.help}</span>}
+      </div>
     )
   }
 

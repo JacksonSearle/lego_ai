@@ -7,7 +7,7 @@ source of any custom blocks, and the software/hardware environment it ran on.
     {
       "format": "lego-ai.run", "version": 1,
       "name": "...",
-      "dataset": {"id": "mnist", "train_subset": null},
+      "dataset": {"id": "mnist", "train_subset": null, "seq_len": null},   # seq_len: text datasets only
       "architecture": {"blocks": [...]},
       "training": {...},
       "custom_blocks": {"file.py": {"source": "...", "sha256": "..."}},
@@ -111,7 +111,7 @@ def normalize(cfg: dict) -> dict:
         "format": FORMAT,
         "version": VERSION,
         "name": cfg.get("name") or "Untitled model",
-        "dataset": {"id": "mnist", "train_subset": None, **(cfg.get("dataset") or {})},
+        "dataset": {"id": "mnist", "train_subset": None, "seq_len": None, **(cfg.get("dataset") or {})},
         "architecture": {"blocks": list((cfg.get("architecture") or {}).get("blocks") or [])},
         "training": {**DEFAULT_TRAINING, **{k: v for k, v in (cfg.get("training") or {}).items() if k in DEFAULT_TRAINING}},
         "custom_blocks": cfg.get("custom_blocks") or {},

@@ -36,7 +36,7 @@ export interface Lesson {
   quiz?: { q: string; options: string[]; answer: number; explain: string }
   /** When the lesson becomes readable in guided mode. Block lessons follow their block's unlock. */
   unlock?: { level?: number; feature?: Feature; skill?: string }
-  action?: 'challenge' | 'addBlock' | { tab: string; label: string; view?: 'lessons' | 'skills' | 'achievements' }
+  action?: 'challenge' | 'addBlock' | { tab: string; label: string; view?: 'lessons' | 'skills' }
 }
 
 const P = ({ children }: { children: ReactNode }) => <p>{children}</p>
@@ -170,9 +170,9 @@ export const LESSONS: Lesson[] = [
     </>,
   },
   {
-    id: 'app.guidebook', section: 'app', title: 'The Guidebook, skill tree & achievements', summary: 'Where everything you unlock is explained.', unlock: { level: 1 }, action: { tab: 'guide', label: 'Open Guidebook' },
+    id: 'app.guidebook', section: 'app', title: 'The Guidebook & skill tree', summary: 'Where everything you unlock is explained.', unlock: { level: 1 }, action: { tab: 'guide', label: 'Open Guidebook' },
     body: <>
-      <P>The Guidebook holds a lesson for every concept, page and block. Locked lessons show what unlocks them. The <b>Skill Tree</b> tab is where you spend skill points (two per level from level 6) to unlock new blocks. Image blocks and text blocks form two branches, roughly in the order they were invented. The <b>Achievements</b> tab lists badges and what earns them.</P>
+      <P>The Guidebook holds a lesson for every concept, page and block. Locked lessons show what unlocks them. The <b>Skill Tree</b> tab is where you spend skill points (two per level from level 6) to unlock new blocks. Image blocks and text blocks form two branches, roughly in the order they were invented. <b>Achievements</b> (badges and what earns them) live in your profile: click your avatar or the XP bar at the top right.</P>
       <P>Each page has a <b>?</b> button that opens its guide.</P>
     </>,
   },
@@ -186,12 +186,6 @@ export const LESSONS: Lesson[] = [
         <li><b>🧱 General</b>: Dropout, activations, MLP blocks, normalization, useful everywhere.</li>
       </ul>
       <P>Unlocking a skill also unlocks its lesson, with an animation, its PyTorch code and the original paper.</P>
-    </>,
-  },
-  {
-    id: 'app.history', section: 'app', title: 'History of AI', summary: 'Watch 200 years of models race on MNIST.', unlock: { feature: 'history.page' }, action: { tab: 'history', label: 'Open History' },
-    body: <>
-      <P>The History page trains twelve landmark models, from 1805’s least squares to 2021’s MLP-Mixer, on the same digits with the same budget, so you can see what each idea added. It runs by itself; click any year on the timeline to see that model’s blocks, its learning curve and the paper that introduced it. It has its own leaderboard, separate from yours.</P>
     </>,
   },
   {
@@ -372,10 +366,30 @@ export const LESSONS: Lesson[] = [
     paper: { title: 'Decoupled Weight Decay Regularization (AdamW)', url: 'https://arxiv.org/abs/1711.05101', authors: 'I. Loshchilov, F. Hutter', year: 2017 },
   },
   {
+    id: 'train.hardware', section: 'train', title: 'Hardware: CPUs, GPUs and when you need more', summary: 'What your computer can train, where the time goes, and how to get access to something bigger.', unlock: { feature: 'train.page' },
+    body: <>
+      <P>Training is mostly multiplying big grids of numbers. A <b>CPU</b> does this on a handful of cores. A <b>GPU</b> (graphics processor) does thousands of these multiplications at once, which is why modern AI runs on GPUs. The Train page’s <b>Hardware</b> tab shows what this computer has and where each epoch’s time is going.</P>
+      <P><b>What fits on a laptop.</b> Everything in the early levels: MLPs and small CNNs on MNIST train in seconds on a CPU. Small LSTMs and transformers on Tiny Shakespeare take minutes. A real CNN on CIFAR-10 takes tens of minutes on a laptop GPU and much longer on a CPU. If a run would take hours, shrink it first: fewer epochs, a training subset, a smaller model, a shorter sequence length.</P>
+      <P><b>Memory is usually the first limit.</b> A GPU can only train what fits in its memory. Use “Check what fits in memory” to find a batch size that works. On Apple Silicon Macs the GPU shares memory with everything else, so closing other apps really does help.</P>
+      <P><b>Reading the time bar.</b> If most time is “model math”, a faster GPU or a smaller model is what helps. If “preparing data” is large, a faster GPU will not help: use a bigger batch or less augmentation. If “validation” dominates, your training subset is tiny compared with the validation set.</P>
+      <P><b>Getting something bigger</b>, roughly from free to costly:</P>
+      <ul>
+        <li><b>Free notebooks.</b> Google Colab and Kaggle Notebooks lend a GPU for a few hours at a time at no cost. Good for experiments that outgrow a laptop.</li>
+        <li><b>Your school or employer.</b> Many universities run a shared GPU cluster that students can apply to use. Ask a teacher, the IT department or a research computing office.</li>
+        <li><b>Education and research credits.</b> The large cloud providers and several GPU companies run programs with free credits for students, teachers and researchers.</li>
+        <li><b>Renting by the hour.</b> Cloud providers and GPU rental marketplaces rent machines by the hour. Prices vary a lot with the GPU model, so compare before you start, and always shut the machine down when you finish: it bills while idle.</li>
+        <li><b>Buying.</b> A desktop with a recent consumer GPU is enough for everything in this app and for a lot of real research at small scale.</li>
+      </ul>
+      <P>To use another machine, install Lego AI there, export your model as JSON here and import it there. The config carries everything needed to train the same model.</P>
+      <Tip>Before paying for anything, make the idea work small. A model that does not learn on a subset on your laptop will not start learning on a bigger GPU.</Tip>
+    </>,
+  },
+  {
     id: 'train.repro', section: 'train', title: 'Reproducibility: seeds & devices', summary: 'Why the same seed gives the same result.', unlock: { feature: 'train.repro' },
     body: <>
       <P>Training uses randomness: the starting weights, the order of examples, which neurons Dropout switches off, how images are augmented. Computers generate “random” numbers from a starting value called the <b>seed</b>. Same seed, same sequence of random numbers, same result.</P>
       <P>Change the seed to see how much your result depends on luck. If two models differ by less than that, the difference may be noise.</P>
+      <P><b>Measuring the luck.</b> Next to the Train button, set <b>seeds</b> to 3 or 5. Lego AI trains that many copies of your model, identical except for the seed, and reports the average accuracy and its spread, for example “97.8% ± 0.2”. On the leaderboard they appear as one row ranked by the average. When you compare two models, a gap smaller than the spread is not evidence that one is better.</P>
       <P><b>Device</b> chooses the processor. CPU is exactly reproducible. Apple’s GPU (MPS) or NVIDIA’s (CUDA) are much faster for big models like CNNs on CIFAR-10, but a few operations aren’t perfectly repeatable. <b>Max steps</b> stops training after a fixed number of updates, handy for quick experiments.</P>
     </>,
   },
@@ -433,6 +447,7 @@ const BLOCK_LESSONS: BlockLessonDef[] = [
       <P>Stack two Linear layers and the result is… still just one Linear layer (multiplying two matrices gives one matrix). To get something more powerful you need a <b>non-linearity</b> between layers: an activation function.</P>
       <P><b>Sigmoid</b> and <b>tanh</b> powered the networks of the 1980s and 90s, but they flatten out for large inputs, which slows learning. <b>ReLU</b> (max(0, x)) is simple and doesn’t saturate for positive values; it helped kick off the deep-learning boom in 2012. <b>GELU</b> and <b>SiLU</b> are smooth cousins used in transformers.</P>
       <P>Now that this is unlocked, every block with an activation lets you choose it, and there’s a standalone Activation block too.</P>
+      <P><b>Draw your own.</b> The <b>Drawn Activation</b> block lets you sketch any shape: drag across its plot in the side panel and the model uses exactly that curve. Put it after a Linear layer whose activation is set to “none”, then train and compare it with ReLU. Try a straight line (the model becomes linear and accuracy drops), a V shape, or a wave.</P>
     </>,
     paramNotes: { fn: 'Which function to apply to every number.' },
     code: [
@@ -588,6 +603,7 @@ const BLOCK_LESSONS: BlockLessonDef[] = [
     block: 'embedding', section: 'text', title: 'Token Embedding', summary: 'Words in, vectors out.', tags: ['text'], year: 2003,
     body: <>
       <P>Text datasets arrive as lists of <b>token ids</b>: each word (AG News) or character (Shakespeare) replaced by its number in a vocabulary. Ids are just labels: word #87 isn’t “bigger” than word #4. The Embedding layer gives every id its own learned vector, so similar words can end up with similar vectors.</P>
+      <P><b>Sequence length.</b> Text arrives in pieces of a fixed number of tokens: 64 by default. You can change it with the “length” box in the Builder (or “Sequence length” on the Train page): longer pieces give the model more context to work with, but every training step costs more time and memory.</P>
       <P>It’s always the first block of a text model: T token ids → T×D vectors. The simplest text classifier is just Embedding → Sequence Pool → Output Head (a “bag of words”: it ignores word order but works surprisingly well).</P>
     </>,
     paramNotes: { dim: 'Length of each word vector. 64–256 is typical for small models.' },
@@ -693,7 +709,7 @@ const BLOCK_LESSONS: BlockLessonDef[] = [
 
 // Blocks covered by another block's lesson.
 export const LESSON_FOR_BLOCK: Record<string, string> = {
-  maxpool2d: 'block.pooling', avgpool2d: 'block.pooling', global_avgpool: 'block.pooling', layernorm: 'block.batchnorm', gru: 'block.lstm',
+  drawn_activation: 'block.activation', maxpool2d: 'block.pooling', avgpool2d: 'block.pooling', global_avgpool: 'block.pooling', layernorm: 'block.batchnorm', gru: 'block.lstm',
 }
 
 for (const b of BLOCK_LESSONS) {

@@ -45,14 +45,19 @@ export function Leaderboard() {
     return () => clearInterval(h)
   }, [anyRunning, load])
 
+  /** Stats of a seed group when it is collapsed into a single row (null otherwise). */
+  const grouped = useCallback((r: RunRow) => (!showTrials && r.group?.stats && (r.group.completed ?? 0) > 1 ? r.group.stats : null), [showTrials])
+
   const dsWithRuns = useMemo(() => datasets.filter((d) => rows.some((r) => r.dataset === d.id)), [datasets, rows])
 
   const filtered = useMemo(() => {
     const s = SORTS.find((x) => x.key === sort)!
-    const val = (r: RunRow) => (sort === 'created_at' ? r.created_at : (r.summary[sort as keyof typeof r.summary] as number | undefined))
+    // A seed group shown as one row is ranked by its average, not by its luckiest member.
+    const val = (r: RunRow) => (sort === 'created_at' ? r.created_at : (grouped(r)?.[sort]?.mean ?? (r.summary[sort as keyof typeof r.summary] as number | undefined)))
     return rows
       .filter((r) => ds === 'all' || r.dataset === ds)
       .filter((r) => showTrials || !r.study || r.study.best)
+      .filter((r) => showTrials || !r.group || r.group.index === 0)
       .filter((r) => showFailed || !['failed', 'pruned'].includes(r.status))
       .filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))
       .sort((a, b) => {
@@ -62,9 +67,14 @@ export function Leaderboard() {
         if (vb == null) return -1
         return s.desc ? vb - va : va - vb
       })
-  }, [rows, ds, sort, showTrials, showFailed, q])
+  }, [rows, ds, sort, showTrials, showFailed, q, grouped])
 
-  const maxAcc = Math.max(0.0001, ...filtered.map((r) => r.summary.best_val_acc ?? 0))
+  // "97.8% ± 0.2" for a collapsed seed group, a plain percentage otherwise.
+  const pm = (r: RunRow, k: 'best_val_acc' | 'test_acc') => {
+    const g = grouped(r)?.[k]
+    return g?.mean != null ? `${(g.mean * 100).toFixed(2)}% ± ${((g.std ?? 0) * 100).toFixed(2)}` : fmtPct(r.summary[k])
+  }
+  const maxAcc = Math.max(0.0001, ...filtered.map((r) => grouped(r)?.best_val_acc?.mean ?? r.summary.best_val_acc ?? 0))
   const ranked = sort === 'best_val_acc' || sort === 'test_acc' || sort === 'best_val_loss'
 
   return (
@@ -81,7 +91,7 @@ export function Leaderboard() {
         <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
           {SORTS.map((s) => <option key={s.key} value={s.key}>Sort: {s.label}</option>)}
         </select>
-        <label className="row small muted"><input type="checkbox" checked={showTrials} onChange={(e) => setShowTrials(e.target.checked)} /> all Optuna trials</label>
+        <label className="row small muted"><input type="checkbox" checked={showTrials} onChange={(e) => setShowTrials(e.target.checked)} /> all trials & seed runs</label>
         <label className="row small muted"><input type="checkbox" checked={showFailed} onChange={(e) => setShowFailed(e.target.checked)} /> failed/pruned</label>
       </div>
 
@@ -111,10 +121,13 @@ export function Leaderboard() {
                   <tr key={r.id} className={`clickable ${selected === r.id ? 'selected' : ''}`} onClick={() => setSelected(selected === r.id ? null : r.id)}>
                     <td className={`rank r${i + 1}`}>{ranked && i < 3 && r.summary.best_val_acc != null ? MEDALS[i] : i + 1}</td>
                     <td>
-                      <div style={{ fontWeight: 600 }}>{r.name}</div>
+                      <div style={{ fontWeight: 600 }}>{grouped(r) ? r.group!.name : r.name}</div>
                       <div className="row" style={{ gap: 4, marginTop: 2 }}>
                         {r.status !== 'completed' && <span className={`pill ${r.status === 'running' ? 'accent' : r.status === 'failed' ? 'bad' : 'warn'}`}>{r.status}</span>}
                         {r.study?.best && <span className="pill accent" title="Best trial of an Optuna study">★ optuna best</span>}
+                        {r.group && (grouped(r)
+                          ? <span className="pill blue" title={`Average of ${r.group.completed} runs with seeds ${r.group.seeds.join(', ')}. Tick “all trials & seed runs” to see each one.`}>× {r.group.completed} seeds</span>
+                          : <span className="pill">seed {r.group.seeds[r.group.index]}</span>)}
                         {r.study && !r.study.best && <span className="pill">trial {r.study.trial}</span>}
                         {r.summary.reproduced === true && <span className="pill ok" title="Retrained from the saved config and matched the original bit-for-bit">✓ reproduced</span>}
                         {r.summary.reproduced === false && <span className="pill bad" title="Retrained from the saved config but results differ">≠ not reproduced</span>}
@@ -125,11 +138,11 @@ export function Leaderboard() {
                     <td className="num">{fmtNum(r.summary.params)}</td>
                     <td>
                       <div className="row">
-                        <span className="mono" style={{ width: 62, fontWeight: 650 }}>{fmtPct(r.summary.best_val_acc)}</span>
-                        <div className="bar grow"><div style={{ width: `${((r.summary.best_val_acc ?? 0) / maxAcc) * 100}%` }} /></div>
+                        <span className="mono nowrap" style={{ minWidth: 62, fontWeight: 650 }}>{pm(r, 'best_val_acc')}</span>
+                        <div className="bar grow"><div style={{ width: `${((grouped(r)?.best_val_acc?.mean ?? r.summary.best_val_acc ?? 0) / maxAcc) * 100}%` }} /></div>
                       </div>
                     </td>
-                    <td className="num">{fmtPct(r.summary.test_acc)}</td>
+                    <td className="num">{pm(r, 'test_acc')}</td>
                     <td className="num">{fmtLoss(r.summary.best_val_loss)}</td>
                     <td className="num">{r.summary.epochs_done ?? 0}/{String(r.training.epochs)}</td>
                     <td className="num">{fmtDur(r.summary.duration)}</td>

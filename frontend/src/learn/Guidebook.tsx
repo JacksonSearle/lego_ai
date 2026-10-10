@@ -373,9 +373,8 @@ export function Guidebook() {
     <div className="guide-layout">
       <aside className="guide-nav" data-tour="guide-nav">
         <div className="seg guide-tabs" style={{ width: '100%', marginBottom: 12 }}>
-          <button className={view === 'lessons' ? 'on' : ''} onClick={() => setView('lessons')}>📖 Lessons</button>
+          <button className={view !== 'skills' ? 'on' : ''} onClick={() => setView('lessons')}>📖 Lessons</button>
           <button className={view === 'skills' ? 'on' : ''} onClick={() => setView('skills')} data-tour="skilltree">🌳 Skills</button>
-          <button className={view === 'achievements' ? 'on' : ''} onClick={() => setView('achievements')}>🏆 Achievements</button>
         </div>
         <input placeholder="Search lessons…" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: '100%', marginBottom: 10 }} />
         <div className="tiny muted" style={{ marginBottom: 8 }}>{readCount} of {LESSONS.length} lessons read</div>
@@ -386,7 +385,7 @@ export function Guidebook() {
               const lock = lessonLock(l, access)
               const read = progress.stats.lessons.includes(l.id)
               return (
-                <div key={l.id} className={`guide-item ${id === l.id && view === 'lessons' ? 'active' : ''} ${lock ? 'locked' : ''}`} onClick={() => { setId(l.id); setView('lessons') }} title={lock ?? l.summary}>
+                <div key={l.id} className={`guide-item ${id === l.id && view !== 'skills' ? 'active' : ''} ${lock ? 'locked' : ''}`} onClick={() => { setId(l.id); setView('lessons') }} title={lock ?? l.summary}>
                   <span className="grow">{lock ? '🔒 ' : ''}{l.title}</span>
                   {read && <span className="ok tiny">✓</span>}
                   {!read && !lock && progress.mode === 'guided' && <span className="dot-new" />}
@@ -397,9 +396,8 @@ export function Guidebook() {
         ))}
       </aside>
       <main className="guide-main">
-        {view === 'lessons' && <LessonView id={id} onNavigate={setId} />}
+        {view !== 'skills' && <LessonView id={id} onNavigate={setId} />}
         {view === 'skills' && <SkillTree />}
-        {view === 'achievements' && <Achievements />}
       </main>
     </div>
   )

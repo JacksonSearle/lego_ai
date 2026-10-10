@@ -49,7 +49,7 @@ def predict(run_id: str, n: int = 12, seed: int = 0) -> dict:
         path = runs.checkpoint_path(run_id, "last")
     if not path.exists():
         raise FileNotFoundError("This run has no saved weights yet.")
-    data = datasets.load(cfg["dataset"]["id"])
+    data = datasets.load_for(cfg["dataset"])
     net, info, _ = build_model(cfg, seed=0)
     state = torch.load(path, map_location="cpu", weights_only=False)
     net.load_state_dict(state["model"])
