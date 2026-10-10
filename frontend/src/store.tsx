@@ -265,7 +265,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const attachJob = useCallback((jobId: string, kind: Session['kind'], name: string, runId: string | null = null, learn?: LearnMeta) => {
     unsub.current?.()
     setSession({ ...emptySession(jobId, kind, name, runId), learn })
-    unsub.current = streamJob(jobId, (e) => setSession((s) => (s && s.jobId === jobId ? reduce(s, e) : s)))
+    unsub.current = streamJob(
+      jobId,
+      (e) => setSession((s) => (s && s.jobId === jobId ? reduce(s, e) : s)),
+      // The stream closed. If the final event never arrived, take the job's status from the server
+      // so the page can't be left showing "running" for something that has finished.
+      async () => {
+        const all = await api.allJobs().catch(() => [])
+        const j = all.find((x) => x.id === jobId)
+        setSession((s) => (s && s.jobId === jobId && s.status === 'running'
+          ? { ...s, status: j && j.status !== 'running' ? j.status : 'completed', error: j?.error ?? s.error, message: 'Finished' }
+          : s))
+      },
+    )
   }, [])
 
   const clearSession = useCallback(() => {

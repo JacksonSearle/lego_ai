@@ -57,6 +57,7 @@ export const api = {
   deleteRun: (id: string) => req('DELETE', `/api/runs/${id}`),
 
   jobs: () => req<Job[]>('GET', '/api/jobs'),
+  allJobs: () => req<Job[]>('GET', '/api/jobs?active_only=false'),
   stopJob: (id: string) => req('POST', `/api/jobs/${id}/stop`),
 
 }

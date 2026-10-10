@@ -62,13 +62,16 @@ def start(kind: str, fn: Callable[[Job], Any], meta: dict | None = None) -> Job:
     JOBS[job.id] = job
 
     def runner():
+        # The job only stops counting as "running" after its final event has been emitted.
+        # Event streams close once a job is no longer running and has nothing left to send,
+        # so flipping the status any earlier lets them close before "job_end" goes out.
         try:
             fn(job)
-            job.status = "stopped" if job.stopping else "completed"
+            final = "stopped" if job.stopping else "completed"
         except Stopped:
-            job.status = "stopped"
+            final = "stopped"
         except Exception as e:  # noqa: BLE001
-            job.status = "failed"
+            final = "failed"
             job.error = f"{type(e).__name__}: {e}"
             job.emit({"type": "error", "message": job.error, "traceback": traceback.format_exc(limit=6)})
         # The job function's locals (model, optimizer, batches) are gone now: return their memory.
@@ -78,7 +81,8 @@ def start(kind: str, fn: Callable[[Job], Any], meta: dict | None = None) -> Job:
             release_memory()
         except Exception:  # noqa: BLE001  - cleanup must never turn a finished job into a failure
             pass
-        job.emit({"type": "job_end", "status": job.status, "error": job.error})
+        job.emit({"type": "job_end", "status": final, "error": job.error})
+        job.status = final
         job.done_event.set()
 
     threading.Thread(target=runner, name=f"job-{kind}-{job.id}", daemon=True).start()
