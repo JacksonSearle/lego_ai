@@ -34,6 +34,11 @@ export function Train() {
   const [runs, setRuns] = useState<RunRow[]>([])
   const { access, flag, spot, progress } = useLearn()
   const est = useEstimate()
+  // Training the same model on several datasets: which ones fit it, and which are ticked.
+  const [compat, setCompat] = useState<{ id: string; ok: boolean }[] | null>(null)
+  const [also, setAlso] = useState<string[]>([])
+  const archKey = JSON.stringify(draft.blocks)
+  useEffect(() => { setCompat(null); setAlso([]) }, [archKey, draft.dataset])
   const [pane, setPane] = useState<Pane>(() => (sessionStorage.getItem('lego-ai/train-pane') as Pane) || 'hp')
   const [seeds, setSeeds] = useState(1)
   // Explanations take a lot of room: on by default while learning, off for experts. Remembered.
@@ -105,6 +110,11 @@ export function Train() {
         const { job } = await api.tune(cfg, optuna)
         attachJob(job.id, 'tune', cfg.name)
         toast(`Optuna study started: ${optuna.n_trials} trials`, 'ok')
+      } else if (also.length > 0 && access.has('datasets.custom')) {
+        const ids = [draft.dataset, ...also]
+        const { job } = await api.trainSuite(cfg, ids)
+        attachJob(job.id, 'suite', cfg.name)
+        toast(`Training on ${ids.length} datasets, one after another`, 'ok')
       } else if (seeds > 1 && access.has('train.repro')) {
         const { job } = await api.trainSeeds(cfg, seeds)
         attachJob(job.id, 'seeds', cfg.name)
@@ -125,7 +135,8 @@ export function Train() {
   const examples = draft.train_subset ? Math.min(draft.train_subset, dataset?.train_size ?? Infinity) : dataset?.train_size
   const lastEpoch = session?.epochPts[session.epochPts.length - 1]
   const canOptuna = !!optuna && !!meta && access.has('train.optuna')
-  const multiSeed = seeds > 1 && access.has('train.repro') && !(useOptuna && canOptuna)
+  const multiData = also.length > 0 && access.has('datasets.custom') && !(useOptuna && canOptuna)
+  const multiSeed = seeds > 1 && access.has('train.repro') && !(useOptuna && canOptuna) && !multiData
   const panes: { id: Pane; label: string }[] = [
     { id: 'model', label: 'Model & data' },
     { id: 'hp', label: 'Hyperparameters' },
@@ -167,7 +178,7 @@ export function Train() {
                   <span className="lbl">Dataset</span>
                   <select value={draft.dataset} disabled={!access.has('datasets')} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value, seq_len: null })); flag('datasetChanged') }}>
                     {datasets.map((d) => {
-                      const ok = !access.datasets || access.datasets.has(d.id)
+                      const ok = !access.datasets || access.datasets.has(d.id) || !!d.custom
                       return <option key={d.id} value={d.id} disabled={!ok}>{ok ? `${d.name} · ${difficultyTag(d).toLowerCase()}` : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
                     })}
                   </select>
@@ -186,6 +197,25 @@ export function Train() {
               </div>
               <div className="small muted">{dataset?.description}</div>
               <Difficulty dataset={dataset} />
+              {access.has('datasets.custom') && (
+                <div className="col" style={{ gap: 6 }}>
+                  <div className="row">
+                    <b className="small grow">Also train on other datasets</b>
+                    {!compat && <button className="sm" disabled={!valid} onClick={() => api.compatible({ blocks: draft.blocks }, draft.custom_blocks).then(setCompat).catch((e) => toast((e as Error).message, 'error'))}>Show datasets this model fits</button>}
+                  </div>
+                  {compat && (
+                    <div className="row wrap" style={{ gap: 6 }}>
+                      {datasets.filter((d) => d.id !== draft.dataset && compat.find((c) => c.id === d.id)?.ok && (!access.datasets || access.datasets.has(d.id) || d.custom)).map((d) => (
+                        <label key={d.id} className={`pill ${also.includes(d.id) ? 'accent' : ''}`} style={{ cursor: 'pointer', padding: '3px 9px' }}>
+                          <input type="checkbox" checked={also.includes(d.id)} onChange={(e) => setAlso((a) => (e.target.checked ? [...a, d.id] : a.filter((x) => x !== d.id)))} style={{ marginRight: 4 }} />{d.name}
+                        </label>
+                      ))}
+                      {datasets.filter((d) => d.id !== draft.dataset && compat.find((c) => c.id === d.id)?.ok).length === 0 && <span className="small muted">This model only fits {dataset?.name}. Models for images, text and tables need different first blocks.</span>}
+                    </div>
+                  )}
+                  <div className="tiny faint">The same model and settings are trained on each ticked dataset in turn. Blocks resize themselves to each dataset’s input and number of classes.</div>
+                </div>
+              )}
               {(access.has('config.io') || access.has('train.resume')) && <PreviousRuns runs={runs} onLoad={async (id) => { const r = await api.run(id); loadConfig({ ...r.config, name: r.config.name }); toast(`Loaded config of “${r.name}”: press Train to retrain from scratch`, 'ok') }} />}
             </div>
           )}
@@ -236,7 +266,7 @@ export function Train() {
             <button className="big danger" onClick={stop}>{session?.kind === 'train' ? '⏸ Pause' : '■ Stop'}</button>
           ) : (
             <button className="big primary" onClick={start} disabled={!valid || starting}>
-              {starting ? <><span className="spinner" /> Checking memory…</> : override === probeKey + t.batch_size ? '▶ Train anyway' : useOptuna && canOptuna ? `▶ Run Optuna (${optuna?.n_trials} trials)` : multiSeed ? `▶ Train × ${seeds} seeds` : '▶ Train'}
+              {starting ? <><span className="spinner" /> Checking memory…</> : override === probeKey + t.batch_size ? '▶ Train anyway' : useOptuna && canOptuna ? `▶ Run Optuna (${optuna?.n_trials} trials)` : multiData ? `▶ Train on ${also.length + 1} datasets` : multiSeed ? `▶ Train × ${seeds} seeds` : '▶ Train'}
             </button>
           )}
           <div className="grow tiny muted" style={{ minWidth: 0 }}>
@@ -589,7 +619,7 @@ function LivePanel({ task }: { task?: string }) {
         </div></div>
       )}
 
-      {(session.kind === 'seeds' || session.kind === 'cook') && <SeedsTable />}
+      {(session.kind === 'seeds' || session.kind === 'cook' || session.kind === 'suite') && <SeedsTable />}
       {(session.kind === 'tune' || session.kind === 'autopilot') && <TrialsTable />}
       {session.kind === 'scale' && (
         <div className="note-box row">
@@ -632,18 +662,19 @@ function SeedsTable() {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h3 className="grow">{session.kind === 'cook' ? 'Variations' : 'Seeds'} {session.seedRuns.length}/{session.seedTotal ?? '?'}</h3>
+        <h3 className="grow">{session.kind === 'cook' ? 'Variations' : session.kind === 'suite' ? 'Datasets' : 'Seeds'} {session.seedRuns.length}/{session.seedTotal ?? '?'}</h3>
         {st && <span className="small">validation <b className="ok">{pm('best_val_acc')}</b> · test <b>{pm('test_acc')}</b></span>}
       </div>
       <table className="tbl">
-        <thead><tr><th>Seed</th><th className="right">Best val acc</th><th className="right">Test acc</th></tr></thead>
+        <thead><tr><th>{session.kind === 'suite' ? 'Dataset' : 'Seed'}</th><th className="right">Best val acc</th><th className="right">Test acc</th></tr></thead>
         <tbody>
           {session.seedRuns.map((r) => (
-            <tr key={r.index}><td className="mono">{r.seed}</td><td className="num">{fmtPct(r.best_val_acc)}</td><td className="num">{fmtPct(r.test_acc)}</td></tr>
+            <tr key={r.index} title={r.error ?? ''}><td className={r.label ? '' : 'mono'}>{r.label ?? r.seed}{r.error && <span className="pill bad" style={{ marginLeft: 6 }}>failed</span>}</td><td className="num">{fmtPct(r.best_val_acc)}</td><td className="num">{fmtPct(r.test_acc)}</td></tr>
           ))}
           {session.status === 'running' && <tr><td colSpan={3} className="small muted"><span className="spinner" style={{ width: 10, height: 10 }} /> {session.message}</td></tr>}
         </tbody>
       </table>
+      {session.kind === 'suite' && <div className="panel-body small muted">The same model and settings on each dataset. On the Leaderboard, switch to <b>By model</b> to see them side by side with their average.</div>}
       {session.kind === 'cook' && <div className="panel-body small muted">Each variation starts from the same trained model and continues with a different data order and learning rate. Because they share a starting point, their weights can be averaged.</div>}
       {st && (
         <div className="panel-body small muted">

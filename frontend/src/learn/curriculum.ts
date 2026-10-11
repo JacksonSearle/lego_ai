@@ -32,6 +32,8 @@ export type Feature =
   | 'advanced.combine' // soups, ensembles, fine-tuned variations
   | 'advanced.autopilot'
   | 'scaling.page'
+  | 'datasets.custom' // the Datasets tab, training on several datasets, the model view of the leaderboard
+  | 'hub' // Hugging Face: import and publish
 
 export interface Stats {
   runs: number
@@ -117,8 +119,8 @@ export const LEVELS: Level[] = [
   { level: 13, xp: 6100, title: 'Chef', unlocks: ['advanced.combine'], news: ['Combine trained models: soups (average the weights), ensembles and a mixture of experts.', 'Tick models on the Leaderboard, or open one and cook a soup from it.'] },
   { level: 14, xp: 7000, title: 'Pilot', unlocks: ['advanced.autopilot'], news: ['Autopilot: start from a trained model and let the computer keep improving it.'] },
   { level: 15, xp: 8000, title: 'Sage', unlocks: ['scaling.page'], news: ['The Scaling tab: train one design at several sizes and see if it follows a scaling law.'] },
-  { level: 16, xp: 9100, title: 'Visionary', unlocks: [], news: [] },
-  { level: 17, xp: 10300, title: 'Luminary', unlocks: [], news: [] },
+  { level: 16, xp: 9100, title: 'Curator', unlocks: ['datasets.custom'], news: ['The Datasets tab: import your own tables, text, images or a Hugging Face dataset.', 'Train one model on several datasets at once.', 'Leaderboard by model: averages across datasets.'] },
+  { level: 17, xp: 10300, title: 'Publisher', unlocks: ['hub'], news: ['Hugging Face: publish your models to the world, and import other people’s.'] },
   { level: 18, xp: 11600, title: 'Legend', unlocks: [], news: [] },
 ]
 
@@ -361,6 +363,10 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'a.monosoup', icon: '🥄', title: 'One Ingredient', desc: 'Make a MonoSoup from a single model.', xp: 75, done: f('monosoup') },
   { id: 'a.autopilot', icon: '🚀', title: 'Hands Off', desc: 'Let the autopilot improve a model for you.', xp: 100, done: f('autopilot') },
   { id: 'a.scaling', icon: '📈', title: 'Law Finder', desc: 'Finish a scaling study.', xp: 150, done: f('scaling') },
+  { id: 'a.dataset', icon: '🗃️', title: 'Bring Your Own', desc: 'Import a dataset of your own.', xp: 100, done: f('importDataset') },
+  { id: 'a.suite', icon: '🎒', title: 'Generalist', desc: 'Train one model on several datasets in one go.', xp: 100, done: f('suite') },
+  { id: 'a.publish', icon: '🤗', title: 'Out in the World', desc: 'Publish a model to Hugging Face.', xp: 150, done: f('publish') },
+  { id: 'a.hubimport', icon: '📥', title: 'Borrowed Brains', desc: 'Import a model from Hugging Face.', xp: 75, done: f('hubImport') },
   { id: 'a.regular', icon: '📋', title: 'Regular', desc: 'Complete 10 training runs.', xp: 75, done: (s) => s.runs >= 10 },
 ]
 

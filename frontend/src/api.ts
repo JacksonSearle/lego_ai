@@ -1,5 +1,5 @@
 import type {
-  Predictions, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, ScalePlanRow, ShiftInfo, ShiftScores, Template,
+  DatasetPreview, HubModel, HubStatus, Predictions, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, ScalePlanRow, ShiftInfo, ShiftScores, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -53,6 +53,20 @@ export const api = {
   tune: (config: RunConfig, optuna: unknown) => req<{ job: Job }>('POST', '/api/tune', { config, optuna }),
   datasetShifts: (dataset: string, example = 0) => req<ShiftInfo[]>('GET', `/api/datasets/${dataset}/shifts?example=${example}`),
   measureShifts: (runId: string) => req<ShiftScores>('POST', `/api/runs/${runId}/shifts`),
+  uploadDataset: (body: { example?: boolean; filename?: string; content?: string }) => req<DatasetPreview>('POST', '/api/datasets/upload', body),
+  hubDataset: (repo: string, config?: string) => req<DatasetPreview>('POST', '/api/datasets/hub', { repo, config }),
+  importDataset: (body: Record<string, unknown>) => req<DatasetInfo>('POST', '/api/datasets/import', body),
+  deleteDataset: (id: string) => req<{ ok: boolean; runs_left: number }>('DELETE', `/api/datasets/${id}`),
+  compatible: (architecture: RunConfig['architecture'], custom_blocks?: RunConfig['custom_blocks']) =>
+    req<{ id: string; ok: boolean; params: number | null }[]>('POST', '/api/datasets/compatible', { architecture, custom_blocks }),
+  trainSuite: (config: RunConfig, datasets: string[]) => req<{ job: Job }>('POST', '/api/train-suite', { config, datasets }),
+  hubStatus: () => req<HubStatus>('GET', '/api/hub/status'),
+  hubLogin: (token: string) => req<HubStatus>('POST', '/api/hub/login', { token }),
+  hubLogout: () => req<HubStatus>('POST', '/api/hub/logout'),
+  hubModels: (q: string) => req<HubModel[]>('GET', `/api/hub/models?q=${encodeURIComponent(q)}`),
+  hubImport: (repo: string, allow_code = false) =>
+    req<{ run_id?: string; name?: string; needs_confirm?: boolean; custom_blocks?: Record<string, string> }>('POST', '/api/hub/import', { repo, allow_code }),
+  publish: (runId: string, name: string, isPrivate: boolean) => req<{ repo: string; url: string; files: string[] }>('POST', `/api/runs/${runId}/publish`, { name, private: isPrivate }),
   combine: (kind: string, runs: string[]) => req<{ job: Job }>('POST', '/api/combine', { kind, runs }),
   cook: (runId: string, o: { n: number; epochs: number; lr_scale: number }) => req<{ job: Job }>('POST', `/api/runs/${runId}/cook`, o),
   autopilot: (runId: string, o: { rounds: number; architecture: boolean }) => req<{ job: Job }>('POST', `/api/runs/${runId}/autopilot`, o),

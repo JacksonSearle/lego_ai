@@ -683,6 +683,8 @@ def export_scripts(raw_config: dict) -> dict[str, str]:
     cfg = cfgmod.normalize(raw_config)
     if cfg.get("init_from"):
         raise ExportError("this model was fine-tuned from another run's weights, which a standalone script cannot recreate. Export the model it started from instead.")
+    if datasets.info_for(cfg["dataset"]).custom:
+        raise ExportError("this model uses a dataset you imported, which a standalone script cannot download. Export works for the built-in datasets.")
     if not cfg["custom_blocks"]:
         cfg["custom_blocks"] = custom.sources_for({b["type"] for b in cfg["architecture"]["blocks"]})
     helpers, customs, net_src, info, n_params = _model_code(cfg)

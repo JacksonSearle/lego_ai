@@ -46,12 +46,12 @@ export interface ScalePoint {
   best_val_acc?: number; best_val_loss?: number; test_acc?: number; test_loss?: number; duration?: number; error?: string
 }
 
-export interface SeedRow { index: number; seed: number; run_id: string; best_val_acc: number | null; test_acc: number | null }
+export interface SeedRow { index: number; seed: number; label?: string; error?: string; run_id: string; best_val_acc: number | null; test_acc: number | null }
 
 export interface Session {
   jobId: string
   /** autopilot behaves like tune (rounds = trials); cook like seeds (variations = seeds). */
-  kind: 'train' | 'tune' | 'seeds' | 'autopilot' | 'cook' | 'scale'
+  kind: 'train' | 'tune' | 'seeds' | 'autopilot' | 'cook' | 'scale' | 'suite'
   status: string
   runId: string | null
   name: string
@@ -100,6 +100,7 @@ interface Store {
   /** True while the backend can't be reached (shape checks and training are unavailable). */
   offline: boolean
   refreshBlocks: () => Promise<void>
+  refreshDatasets: () => Promise<void>
   session: Session | null
   attachJob: (jobId: string, kind: Session['kind'], name: string, runId?: string | null, learn?: LearnMeta) => void
   clearSession: () => void
@@ -176,7 +177,7 @@ function reduce(s: Session, e: JobEvent): Session {
     case 'seed_start':
       return {
         ...s, currentTrial: (e.index as number) + 1, seedTotal: e.n as number, runId: e.run_id as string, steps: [], epochPts: [],
-        message: `Seed ${e.seed} (${(e.index as number) + 1} of ${e.n})`,
+        message: e.label ? `${e.label} (${(e.index as number) + 1} of ${e.n})` : `Seed ${e.seed} (${(e.index as number) + 1} of ${e.n})`,
       }
     case 'seed_end':
       return { ...s, seedRuns: [...s.seedRuns, e as unknown as SeedRow] }
@@ -224,6 +225,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshBlocks = useCallback(async () => setBlockList(await api.blocks()), [])
+  const refreshDatasets = useCallback(async () => setDatasets(await api.datasets()), [])
 
   useEffect(() => {
     api.meta().then((m) => {
@@ -312,7 +314,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Re-attach to a training/tuning job that is still running (e.g. after a page reload).
   useEffect(() => {
     api.jobs().then((jobs) => {
-      const j = jobs.find((x) => ['train', 'tune', 'seeds', 'autopilot', 'cook', 'scale'].includes(x.kind))
+      const j = jobs.find((x) => ['train', 'tune', 'seeds', 'autopilot', 'cook', 'scale', 'suite'].includes(x.kind))
       if (j) attachJob(j.id, j.kind as Session['kind'], String(j.meta.name ?? 'Run'), (j.meta.run_id as string) ?? null)
     })
   }, [attachJob])
@@ -407,7 +409,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     meta, blocks, datasets, dataset, draft, setDraft, undo, redo, canUndo: hist.past.length > 0, canRedo: hist.future.length > 0,
-    inspect, offline, refreshBlocks, session, attachJob, clearSession, toConfig, effectiveTraining, loadConfig, tab, setTab, toast, toasts,
+    inspect, offline, refreshBlocks, refreshDatasets, session, attachJob, clearSession, toConfig, effectiveTraining, loadConfig, tab, setTab, toast, toasts,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -238,12 +238,36 @@ FAMOUS: dict[str, list[dict]] = {
 }
 
 
+def _for_custom(dataset_id: str) -> list[dict]:
+    """Starting points for an imported dataset: the templates of the most similar built-in one that fit it."""
+    from . import datasets, model as modelmod
+
+    info = datasets.DATASETS.get(dataset_id)
+    if not info:
+        return []
+    if info.input_kind == "image":
+        like = "mnist" if info.input_shape[0] == 1 else "cifar10"
+    elif info.input_kind == "vector":
+        like = "spirals"
+    else:
+        like = "shakespeare" if info.task == "lm" else "ag_news"
+    out = []
+    for t in copy.deepcopy(TEMPLATES.get(like, [])):
+        if modelmod.inspect({"blocks": t["blocks"]}, info.input_shape, info.ctx()).ok:
+            out.append(t)
+    if out and not any(t.get("recommended") for t in out):
+        out[0]["recommended"] = True
+    return out
+
+
 def for_dataset(dataset_id: str) -> list[dict]:
     """Templates for a dataset; GPU suggestions fall back to whatever accelerator (or CPU) exists here."""
     import torch
 
     accel = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
     out = copy.deepcopy(TEMPLATES.get(dataset_id, []) + FAMOUS.get(dataset_id, []))
+    if not out:
+        out = _for_custom(dataset_id)
     for t in out:
         if t["training"].get("device") in ("mps", "cuda"):
             t["training"]["device"] = accel

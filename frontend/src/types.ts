@@ -61,6 +61,9 @@ export interface DatasetInfo {
   difficulty: number
   difficulty_note: string
   targets: { baseline: number; good: number; great: number } | null
+  /** Imported by the user on the Datasets tab. */
+  custom?: boolean
+  tokenizer?: 'char' | 'word' | null
 }
 
 export interface HyperParam {
@@ -202,7 +205,32 @@ export interface RunRow {
   /** A fine-tuned variation made while cooking a soup. */
   variation?: { id: string; index: number; n: number; of: string } | null
   init_from?: { run_id: string; name?: string | null } | null
+  /** One model trained on several datasets in one go. */
+  suite?: { id: string; index: number; n: number; datasets: string[]; name: string } | null
+  /** Published to, or imported from, the Hugging Face Hub. */
+  hub?: { repo: string; url: string; published_at?: number; imported_at?: number } | null
+  /** Identifies the model design (same blocks and settings), whatever the dataset. */
+  arch: string
 }
+
+/** A column of an uploaded table, as shown before importing. */
+export interface PreviewColumn { name: string; type: 'number' | 'text' | 'image'; unique: number; missing: number; avg_words: number; label_like: boolean; class_names: string[] | null }
+export interface DatasetPreview {
+  token: string
+  source: string
+  kind: 'table' | 'text'
+  n_rows: number
+  has_split?: boolean
+  columns: PreviewColumn[]
+  rows: (string | { image: number[]; shape: number[]; size: number[] } | null)[][]
+  suggest: { label: string | null; inputs: string[] }
+  sample?: string
+  n_chars?: number
+  vocab?: number
+  hub?: { repo: string; config: string; configs: string[]; truncated: boolean }
+}
+export interface HubStatus { logged_in: boolean; user: string | null; error?: string }
+export interface HubModel { repo: string; downloads: number | null; likes: number | null; updated: string }
 
 /** One point of a scaling study. */
 export interface ScaleTag { id: string; axis: 'width' | 'data'; index: number; n: number; factor: number; name: string; n_train: number }
@@ -286,6 +314,7 @@ export interface RunDetail {
   group?: SeedGroup | null
   combine?: CombineInfo | null
   scale?: ScaleTag | null
+  hub?: RunRow['hub']
   /** False for soups and ensembles: they have weights but no optimizer state to continue from. */
   resumable?: boolean
 }

@@ -26,6 +26,7 @@ import torch
 from .registry import BuildContext
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "datasets"
+CUSTOM_DIR = DATA_DIR / "custom"
 VAL_SPLIT_SEED = 12345
 
 
@@ -54,6 +55,12 @@ class DatasetInfo:
     difficulty_note: str = ""
     # Validation accuracy you can expect: a trivial baseline, a good result and a great one.
     targets: dict | None = None
+    # Text datasets: "char" (one token per character) or "word".
+    tokenizer: str | None = None
+    # Language-model datasets: length of the training token stream (to size windows of any length).
+    train_tokens: int | None = None
+    # Imported by the user (stored under data/datasets/custom/<id>/).
+    custom: bool = False
 
     def ctx(self) -> BuildContext:
         return BuildContext(
@@ -97,14 +104,14 @@ DATASETS: dict[str, DatasetInfo] = {
         "ag_news", "AG News", "127k news headlines + descriptions in 4 topics (World, Sports, Business, Sci/Tech), as word tokens.",
         "classification", "tokens", [64], 4, vocab_size=20002, seq_len=64,
         class_names=["World", "Sports", "Business", "Sci/Tech"],
-        source="https://arxiv.org/abs/1509.01626", train_size=115000, test_size=7600, seq_len_range=[8, 256],
+        source="https://arxiv.org/abs/1509.01626", train_size=115000, test_size=7600, seq_len_range=[8, 256], tokenizer="word",
         difficulty=1, targets={"baseline": 0.85, "good": 0.90, "great": 0.92},
         difficulty_note="Easy. Topic words give it away, so even averaged word vectors reach about 90% in a minute. Bigger models add only a point or two.",
     ),
     "shakespeare": DatasetInfo(
         "shakespeare", "Tiny Shakespeare", "1.1M characters of Shakespeare. Character-level language modeling: predict the next character.",
         "lm", "tokens", [64], 65, vocab_size=65, seq_len=64,
-        source="https://github.com/karpathy/char-rnn", train_size=14117, test_size=1742, seq_len_range=[8, 512],
+        source="https://github.com/karpathy/char-rnn", train_size=14117, test_size=1742, seq_len_range=[8, 512], tokenizer="char", train_tokens=1003854,
         difficulty=3, targets={"baseline": 0.30, "good": 0.50, "great": 0.60},
         difficulty_note="Hard. Predicting the next character is never certain, so 55 to 60% is excellent. Needs an LSTM or transformer and many minutes of training; text quality keeps improving long after accuracy flattens.",
     ),
@@ -172,8 +179,8 @@ def with_seq_len(info: DatasetInfo, seq_len: int | None) -> DatasetInfo:
     if not lo <= L <= hi:
         raise ValueError(f"Sequence length for {info.name} must be between {lo} and {hi}.")
     out = replace(info, seq_len=L, input_shape=[L])
-    if info.id == "shakespeare":
-        n = (SHAKESPEARE_TRAIN_CHARS - 1) // L
+    if info.train_tokens:
+        n = (info.train_tokens - 1) // L
         out.train_size = n - min(5000, max(1, n // 10))
     return out
 
@@ -204,6 +211,8 @@ def _load_raw(dataset_id: str) -> dict:
     if dataset_id not in _raw:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         cache = DATA_DIR / _CACHE_FILE.get(dataset_id, f"{dataset_id}.pt")
+        if DATASETS[dataset_id].custom:
+            cache = CUSTOM_DIR / dataset_id / "data.pt"
         if cache.exists():
             _raw[dataset_id] = torch.load(cache)
         else:
@@ -219,10 +228,10 @@ def _chunks(seq: torch.Tensor, t: int):
 
 
 def _build(info: DatasetInfo, raw: dict) -> Data:
-    if info.id == "shakespeare":
+    if "train_ids" in raw:  # a token stream (language modeling): cut it into windows
         tx, ty = _chunks(raw["train_ids"], info.seq_len)
         test_x, test_y = _chunks(raw["test_ids"], info.seq_len)
-    elif info.id == "ag_news":
+    elif info.input_kind == "tokens":  # stored at full length; any shorter length is a slice
         tx, ty = raw["train_x"][:, : info.seq_len], raw["train_y"]
         test_x, test_y = raw["test_x"][:, : info.seq_len].contiguous(), raw["test_y"]
     else:
@@ -335,7 +344,26 @@ LOADERS = {
 }
 
 
+def register(info: DatasetInfo):
+    """Add (or replace) a user-imported dataset."""
+    with _lock:
+        DATASETS[info.id] = info
+        _raw.pop(info.id, None)
+        for k in [k for k in _cache if k[0] == info.id]:
+            del _cache[k]
+
+
+def unregister(dataset_id: str):
+    with _lock:
+        DATASETS.pop(dataset_id, None)
+        _raw.pop(dataset_id, None)
+        for k in [k for k in _cache if k[0] == dataset_id]:
+            del _cache[k]
+
+
 def is_cached(dataset_id: str) -> bool:
+    if dataset_id in DATASETS and DATASETS[dataset_id].custom:
+        return True
     return dataset_id in _raw or (DATA_DIR / _CACHE_FILE.get(dataset_id, f"{dataset_id}.pt")).exists()
 
 

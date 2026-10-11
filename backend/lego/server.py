@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from . import blocks  # noqa: F401  (registers built-ins)
-from . import autopilot, batchsize, combine, config as cfgmod, custom, datasets, export, hardware, jobs, model as modelmod, predict, progress, runs, scaling, seeds, shifts, templates, tuner
+from . import autopilot, batchsize, combine, config as cfgmod, custom, datasets, export, hardware, hub, jobs, model as modelmod, predict, progress, runs, scaling, seeds, shifts, templates, tuner, userdata
 from .registry import CATEGORY_ORDER, REGISTRY
 from .train import train_run
 
@@ -22,6 +22,7 @@ FRONTEND = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 custom.ensure_example()
 CUSTOM_LOAD_ERRORS = custom.load_all()
+userdata.load_all()
 runs.mark_interrupted()
 
 
@@ -52,6 +53,56 @@ def list_blocks():
 @app.get("/api/datasets")
 def list_datasets():
     return [{**d.to_json(), "cached": datasets.is_cached(d.id)} for d in datasets.DATASETS.values()]
+
+
+# ---- importing datasets ----
+def _user(fn):
+    try:
+        return fn()
+    except (userdata.ImportError_, hub.HubError) as e:
+        _bad(e)
+
+
+@app.post("/api/datasets/upload")
+def dataset_upload(body: dict = Body(...)):
+    """Stage an uploaded file (base64) or the worked example, and describe what is in it."""
+    if body.get("example"):
+        return _user(lambda: userdata.preview(userdata.example()))
+    return _user(lambda: userdata.preview(userdata.from_upload(str(body.get("filename") or ""), str(body.get("content") or ""))))
+
+
+@app.post("/api/datasets/hub")
+def dataset_from_hub(body: dict = Body(...)):
+    """Stage (the first part of) a Hugging Face dataset."""
+    def go():
+        table = hub.dataset_table(str(body.get("repo") or ""), body.get("config"))
+        return {**userdata.preview(userdata.stage(table)), "hub": table["hub"]}
+    return _user(go)
+
+
+@app.post("/api/datasets/import")
+def dataset_import(body: dict = Body(...)):
+    info = _user(lambda: userdata.build(str(body.get("token") or ""), body))
+    return {**info.to_json(), "cached": True}
+
+
+@app.delete("/api/datasets/{dataset_id}")
+def dataset_delete(dataset_id: str):
+    used = sum(1 for r in runs.list_runs() if r["config"]["dataset"]["id"] == dataset_id)
+    _user(lambda: userdata.delete(dataset_id))
+    return {"ok": True, "runs_left": used}
+
+
+@app.post("/api/datasets/compatible")
+def datasets_compatible(body: dict = Body(...)):
+    """Which datasets a given architecture can be trained on as it stands."""
+    arch = body.get("architecture") or {"blocks": []}
+    overlay = custom.build_registry_overlay(body.get("custom_blocks"))
+    out = []
+    for info in datasets.DATASETS.values():
+        report = modelmod.inspect(arch, info.input_shape, info.ctx(), overlay)
+        out.append({"id": info.id, "ok": report.ok, "params": report.total_params if report.ok else None})
+    return out
 
 
 @app.get("/api/datasets/{dataset_id}/samples")
@@ -250,6 +301,63 @@ def train_seeds(body: dict = Body(...)):
     return {"job": job.to_json()}
 
 
+@app.post("/api/train-suite")
+def train_suite(body: dict = Body(...)):
+    """Train one model on several datasets in turn."""
+    try:
+        cfg = _prepare_config(body["config"])
+        ids = [str(d) for d in body.get("datasets") or [] if str(d) in datasets.DATASETS]
+        if len(ids) < 2:
+            raise ValueError("Choose at least two datasets.")
+        overlay = custom.build_registry_overlay(cfg["custom_blocks"])
+        for d in ids:
+            info = datasets.get_info(d)
+            report = modelmod.inspect(cfg["architecture"], info.input_shape, info.ctx(), overlay)
+            if not report.ok:
+                raise ValueError(f"This model does not fit {info.name}: {report.error}")
+    except (ValueError, KeyError) as e:
+        _bad(e)
+    job = jobs.start("suite", lambda job: seeds.run_suite(job, cfg, ids), meta={"name": cfg["name"]})
+    return {"job": job.to_json()}
+
+
+# ---------------------------------------------------------------------------
+# Hugging Face
+# ---------------------------------------------------------------------------
+@app.get("/api/hub/status")
+def hub_status():
+    return hub.status()
+
+
+@app.post("/api/hub/login")
+def hub_login(body: dict = Body(...)):
+    return _user(lambda: hub.login(str(body.get("token") or "")))
+
+
+@app.post("/api/hub/logout")
+def hub_logout():
+    return hub.logout()
+
+
+@app.get("/api/hub/models")
+def hub_models(q: str = ""):
+    return _user(lambda: hub.search(q))
+
+
+@app.post("/api/hub/import")
+def hub_import(body: dict = Body(...)):
+    return _user(lambda: hub.import_model(str(body.get("repo") or ""), bool(body.get("allow_code"))))
+
+
+@app.post("/api/runs/{run_id}/publish")
+def hub_publish(run_id: str, body: dict = Body(...)):
+    try:
+        runs.get(run_id)
+    except KeyError as e:
+        _bad(e, 404)
+    return _user(lambda: hub.publish(run_id, str(body.get("name") or ""), bool(body.get("private"))))
+
+
 @app.get("/api/hardware")
 def hardware_report():
     return hardware.report()
@@ -405,6 +513,14 @@ def _has_weights(run_id: str) -> bool:
     return runs.checkpoint_path(run_id).exists() or runs.checkpoint_path(run_id, "best").exists()
 
 
+def _arch_key(c: dict) -> str:
+    """Identifies a model design: the same blocks with the same settings, whatever the dataset."""
+    import hashlib
+
+    blocks = [[b["type"], b.get("repeat", 1), sorted((b.get("params") or {}).items(), key=lambda kv: kv[0])] for b in c["architecture"]["blocks"]]
+    return hashlib.sha1(json.dumps(blocks, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
 def _brief(c: dict | None) -> dict | None:
     """A combine record without its bulky per-layer details, for the run list."""
     return None if not c else {"kind": c["kind"], "method": c.get("method"), "n": len(c.get("members") or [])}
@@ -422,6 +538,7 @@ def list_runs(include_demo: bool = False):
             "updated_at": r["updated_at"], "dataset": c["dataset"]["id"], "summary": r["summary"], "error": r.get("error"),
             "study": r.get("study"), "reproduce_of": r.get("reproduce_of"), "group": r.get("group"),
             "combine": _brief(r.get("combine")), "scale": r.get("scale"), "variation": r.get("variation"),
+            "suite": r.get("suite"), "hub": r.get("hub"), "arch": _arch_key(c),
             "init_from": c.get("init_from"),
             "training": c["training"], "n_blocks": len(c["architecture"]["blocks"]),
             "block_types": [b["type"] for b in c["architecture"]["blocks"]],

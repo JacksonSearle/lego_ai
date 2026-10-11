@@ -28,7 +28,7 @@ _lock = threading.Lock()
 
 def _decode(data: datasets.Data, ids: torch.Tensor) -> str:
     vocab = data.vocab or []
-    if data.info.id == "shakespeare":
+    if data.info.tokenizer == "char":
         return "".join(vocab[i] for i in ids.tolist())
     return " ".join(vocab[i] for i in ids.tolist() if i != 0)
 
@@ -256,7 +256,7 @@ def _generate_ids(net, info, prompt: torch.Tensor, max_new: int, temperature: fl
 def generate(run_id: str, prompt: str, max_new: int = 200, temperature: float = 0.8, seed: int = 0, top_k: int | None = None) -> dict:
     net, info, data = _load(run_id)
     if info.task != "lm":
-        raise ValueError("Only language models (trained on Tiny Shakespeare) can generate text.")
+        raise ValueError("Only language models (trained on a text dataset such as Tiny Shakespeare) can generate text.")
     stoi = _stoi(data)
     kept = [ch for ch in prompt if ch in stoi]
     dropped = sorted({ch for ch in prompt if ch not in stoi})

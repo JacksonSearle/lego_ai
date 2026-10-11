@@ -108,6 +108,17 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
   gate over the members). On a single run: Cook a soup (fine-tune several variations from it,
   then average them) and MonoSoup ("Model soups need only one ingredient", arXiv 2602.09689).
   Results are ordinary runs that work in Explore.
+- **Datasets tab.** Import your own data: a CSV table (numbers or one text column, plus a
+  category column), a .txt file (character-level language modeling), a zip of images in one
+  folder per class, or a Hugging Face dataset by name (first 20,000 rows). A worked example
+  (Iris) explains each step. Stored in `backend/data/datasets/custom/`.
+- **Several datasets at once.** Train → Model & data → tick other datasets the model fits. The
+  Leaderboard's "By model" view shows one row per model design with its score on each dataset
+  and the average.
+- **Hugging Face.** Leaderboard → 🤗 Hugging Face: log in with an access token, import models
+  published from Lego AI, and publish a run (config, weights, model card, training script) from
+  its detail panel. Weights are loaded as plain tensors; a model with custom block code asks
+  before it is imported.
 - **Fine-tuning.** Fine-tune on a run starts a new run from its trained weights, on the same or a
   different dataset. Matching layers are copied; changed layers, and the output head when the
   dataset differs, start fresh.
@@ -230,13 +241,15 @@ backend/lego/
   combine.py      soups, ensembles, mixture of experts, MonoSoup, soup recipe
   autopilot.py    local search starting from a trained run
   scaling.py      scaling studies (model width or data size)
+  userdata.py     importing datasets (CSV, text, image zip)
+  hub.py          Hugging Face: dataset import, publish and import models
   shifts.py       shifted test sets (corruptions, USPS, CIFAR-10.1) and robustness scores
   progress.py     learner profiles
   probe_worker.py batch-size tests in a child process
   runs.py, jobs.py   storage, background jobs + event streams
   server.py       FastAPI app
 frontend/src/
-  pages/          Lab, Builder, Train, Leaderboard, Explore, Scaling, CustomBlocks
+  pages/          Lab, Builder, Train, Leaderboard, Explore, Scaling, Datasets, CustomBlocks
   learn/          curriculum, lessons, diagrams, guidebook, teacher demo
   components/     Brick, ParamField, LineChart, LiveCharts, ArchView, SizeAdvisor
   store.tsx       app state, undo/redo, live job stream

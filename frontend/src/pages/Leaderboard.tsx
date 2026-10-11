@@ -7,7 +7,7 @@ import { TensorImage } from '../components/TensorImage'
 import { GuideButton } from '../learn/GuideButton'
 import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
-import type { Combined, RunDetail, RunRow, ShiftInfo, ShiftScores } from '../types'
+import type { Combined, DatasetInfo, HubModel, HubStatus, RunDetail, RunRow, ShiftInfo, ShiftScores } from '../types'
 import { fmtAgo, fmtDur, fmtLoss, fmtNum, fmtPct, MEDALS } from '../util'
 
 type SortKey = 'best_val_acc' | 'test_acc' | 'shift_acc' | 'best_val_loss' | 'params' | 'duration' | 'created_at'
@@ -31,6 +31,10 @@ export function Leaderboard() {
   const canCombine = access.has('advanced.combine')
   const [picked, setPicked] = useState<string[]>([])
   const [combining, setCombining] = useState(false)
+  const [view, setView] = useState<'runs' | 'models'>(() => (localStorage.getItem('lego-ai/lb-view') === 'models' ? 'models' : 'runs'))
+  useEffect(() => localStorage.setItem('lego-ai/lb-view', view), [view])
+  const [hubOpen, setHubOpen] = useState(false)
+  const byModel = view === 'models' && access.has('datasets.custom')
   const [rows, setRows] = useState<RunRow[]>([])
   // Remember the dataset tab and sort order between visits.
   const [ds, setDs] = useState<string>(() => localStorage.getItem('lego-ai/lb-dataset') ?? 'all')
@@ -98,7 +102,14 @@ export function Leaderboard() {
           <button className={ds === 'all' ? 'on' : ''} onClick={() => setDs('all')}>All</button>
           {dsWithRuns.map((d) => <button key={d.id} className={ds === d.id ? 'on' : ''} onClick={() => setDs(d.id)}>{d.name}</button>)}
         </div>
+        {access.has('datasets.custom') && (
+          <div className="seg" title="By model: one row per model design, with its score on every dataset it was trained on and the average">
+            <button className={!byModel ? 'on' : ''} onClick={() => setView('runs')}>Runs</button>
+            <button className={byModel ? 'on' : ''} onClick={() => setView('models')}>By model</button>
+          </div>
+        )}
         <span className="spacer" />
+        {access.has('hub') && <button onClick={() => setHubOpen(true)}>🤗 Hugging Face</button>}
         <input placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 160 }} />
         <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
           {SORTS.map((s) => <option key={s.key} value={s.key}>Sort: {s.label}</option>)}
@@ -113,7 +124,9 @@ export function Leaderboard() {
 
       <div className={`lb-layout ${selected ? 'with-detail' : ''}`}>
         <div className="panel lb-table" data-tour="leaderboard">
-          {filtered.length === 0 ? (
+          {byModel ? (
+            <ModelTable rows={rows.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))} datasets={datasets} dsFilter={ds} selected={selected} onSelect={(id) => setSelected(selected === id ? null : id)} />
+          ) : filtered.length === 0 ? (
             <div className="empty" style={{ margin: 20 }}>No runs yet. Build a model and train it, and it will show up here.</div>
           ) : (
             <table className="tbl">
@@ -152,6 +165,8 @@ export function Leaderboard() {
                         {r.study?.best && <span className="pill accent" title={r.study.kind === 'autopilot' ? 'The best model the autopilot found' : 'Best trial of an Optuna study'}>★ {r.study.kind === 'autopilot' ? 'autopilot' : 'optuna'} best</span>}
                         {r.combine && <span className="pill blue" title="Made by combining trained models">{COMBINE_ICON[r.combine.kind]} {combineLabel(r.combine)}</span>}
                         {r.scale && <span className="pill" title="One point of a scaling study (see the Scaling tab)">📈 {r.scale.axis === 'width' ? `${r.scale.factor}× width` : `${(r.scale.factor * 100).toFixed(0)}% data`}</span>}
+                        {r.suite && <span className="pill" title={`Trained on ${r.suite.n} datasets in one go. Switch to “By model” to compare them.`}>🎒 {r.suite.index + 1} of {r.suite.n}</span>}
+                        {r.hub && <span className="pill blue" title={r.hub.repo}>🤗 {r.hub.imported_at ? 'imported' : 'published'}</span>}
                         {r.init_from && <span className="pill" title={`Started from the trained weights of “${r.init_from.name ?? r.init_from.run_id}”`}>fine-tuned</span>}
                         {r.group && (grouped(r)
                           ? <span className="pill blue" title={`Average of ${r.group.completed} runs with seeds ${r.group.seeds.join(', ')}. Tick “all trials & seed runs” to see each one.`}>× {r.group.completed} seeds</span>
@@ -184,10 +199,181 @@ export function Leaderboard() {
         </div>
         {selected && <RunDetailPanel id={selected} onClose={() => setSelected(null)} onChanged={load} onMade={(id) => { load(); setSelected(id) }} />}
       </div>
+      {hubOpen && <HubModal onClose={() => setHubOpen(false)} onImported={(id) => { setHubOpen(false); setView('runs'); load(); setSelected(id) }} />}
       {combining && (
         <CombineModal runs={rows.filter((r) => picked.includes(r.id))} onClose={() => setCombining(false)}
           onDone={(id) => { setCombining(false); setPicked([]); setShowTrials(false); load(); setSelected(id) }} />
       )}
+    </div>
+  )
+}
+
+/** One row per model design: its best score on each dataset, and the average. */
+function ModelTable({ rows, datasets, dsFilter, selected, onSelect }: { rows: RunRow[]; datasets: DatasetInfo[]; dsFilter: string; selected: string | null; onSelect: (id: string) => void }) {
+  const { blocks: specs } = useStore()
+  const [kind, setKind] = useState<'all' | 'image' | 'tokens' | 'vector'>('all')
+  const kindOf = (id: string) => datasets.find((d) => d.id === id)?.input_kind
+  const usable = rows.filter((r) => r.status === 'completed' && r.summary.best_val_acc != null && !r.combine && !r.variation && (kind === 'all' || kindOf(r.dataset) === kind))
+  // Columns: every dataset any model was trained on (the dataset tabs narrow it to one).
+  const cols = datasets.filter((d) => usable.some((r) => r.dataset === d.id) && (dsFilter === 'all' || d.id === dsFilter))
+  const groups = new Map<string, RunRow[]>()
+  usable.forEach((r) => groups.set(r.arch, [...(groups.get(r.arch) ?? []), r]))
+  const table = [...groups.values()].map((rs) => {
+    const best: Record<string, RunRow> = {}
+    rs.forEach((r) => { if (!best[r.dataset] || (r.summary.best_val_acc ?? 0) > (best[r.dataset].summary.best_val_acc ?? 0)) best[r.dataset] = r })
+    const have = cols.filter((c) => best[c.id])
+    const avg = have.length ? have.reduce((a, c) => a + (best[c.id].summary.best_val_acc ?? 0), 0) / have.length : null
+    // Name the group after its most common run name.
+    const names = new Map<string, number>()
+    rs.forEach((r) => { const n = (r.suite?.name ?? r.group?.name ?? r.name).replace(/ · (seed|trial|autopilot) \d+$/, ''); names.set(n, (names.get(n) ?? 0) + 1) })
+    const name = [...names.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    return { key: rs[0].arch, name, best, have: have.length, avg, runs: rs.length, types: rs[0].block_types, params: Object.values(best).map((r) => r.summary.params ?? 0) }
+  }).filter((g) => g.have > 0)
+  // Models tested on more datasets come first: an average over one dataset is not comparable with one over four.
+  table.sort((a, b) => b.have - a.have || (b.avg ?? 0) - (a.avg ?? 0))
+  const top: Record<string, number> = {}
+  cols.forEach((c) => { top[c.id] = Math.max(...table.map((g) => g.best[c.id]?.summary.best_val_acc ?? 0)) })
+  return (
+    <>
+      <div className="row small" style={{ padding: '8px 10px', gap: 10 }}>
+        <span className="muted">Each row is one model design (the same blocks with the same settings). Cells show its best validation accuracy on that dataset.</span>
+        <span className="spacer" />
+        <div className="seg">
+          {([['all', 'All data'], ['image', '🖼️ Images'], ['tokens', '📝 Text'], ['vector', '🔢 Tables']] as const).map(([k, l]) => <button key={k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>{l}</button>)}
+        </div>
+      </div>
+      {table.length === 0 ? <div className="empty" style={{ margin: 20 }}>No finished runs to compare yet.</div> : (
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th style={{ width: 36 }}>#</th><th>Model</th><th>Architecture</th><th className="right">Params</th>
+              <th className="right" title="Average of the best validation accuracy over the datasets shown that this model was trained on">Average</th>
+              <th className="right" title="How many of the datasets shown this model has been trained on">Datasets</th>
+              {cols.map((c) => <th key={c.id} className="right">{c.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {table.map((g, i) => (
+              <tr key={g.key}>
+                <td className={`rank r${i + 1}`}>{i < 3 && g.have === table[0].have && g.have > 1 ? MEDALS[i] : i + 1}</td>
+                <td><div style={{ fontWeight: 600 }}>{g.name}</div><div className="tiny muted">{g.runs} run{g.runs === 1 ? '' : 's'}</div></td>
+                <td><Chips types={g.types} specs={specs} /></td>
+                <td className="num">{Math.min(...g.params) === Math.max(...g.params) ? fmtNum(g.params[0]) : `${fmtNum(Math.min(...g.params))} to ${fmtNum(Math.max(...g.params))}`}</td>
+                <td className="num" style={{ fontWeight: 700 }}>{fmtPct(g.avg)}</td>
+                <td className="num muted">{g.have} of {cols.length}</td>
+                {cols.map((c) => {
+                  const r = g.best[c.id]
+                  return (
+                    <td key={c.id} className={`num ${r ? 'clickable-cell' : ''} ${r && selected === r.id ? 'cell-selected' : ''}`} onClick={() => r && onSelect(r.id)} title={r ? `${r.name}: open this run` : 'Not trained on this dataset'}>
+                      {r ? <span className={r.summary.best_val_acc === top[c.id] ? 'ok' : ''} style={r.summary.best_val_acc === top[c.id] ? { fontWeight: 700 } : undefined}>{fmtPct(r.summary.best_val_acc)}</span> : <span className="faint">-</span>}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
+  )
+}
+
+/** Log in to Hugging Face and import models other people published from Lego AI. */
+function HubModal({ onClose, onImported }: { onClose: () => void; onImported: (runId: string) => void }) {
+  const { toast, refreshBlocks } = useStore()
+  const { flag } = useLearn()
+  const [st, setSt] = useState<HubStatus | null>(null)
+  const [token, setToken] = useState('')
+  const [repo, setRepo] = useState('')
+  const [found, setFound] = useState<HubModel[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [code, setCode] = useState<Record<string, string> | null>(null)
+  useEffect(() => { api.hubStatus().then(setSt).catch(() => setSt({ logged_in: false, user: null })) }, [])
+  const go = async (fn: () => Promise<void>) => { setBusy(true); setErr(null); try { await fn() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) } }
+  const doImport = (allow = false) => go(async () => {
+    const r = await api.hubImport(repo.trim(), allow)
+    if (r.needs_confirm) { setCode(r.custom_blocks ?? {}); return }
+    await refreshBlocks()
+    flag('hubImport')
+    toast(`Imported “${r.name}”`, 'ok')
+    onImported(r.run_id!)
+  })
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" style={{ width: 'min(720px, 100%)' }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head"><h2>🤗 Hugging Face</h2><GuideButton lesson="app.hub" /><span className="spacer" /><button className="ghost" onClick={onClose}>✕</button></div>
+        <div className="modal-body col" style={{ gap: 16 }}>
+          {err && <div className="error-box">{err}</div>}
+          <div className="col" style={{ gap: 8 }}>
+            <h4>Your account</h4>
+            {!st ? <span className="spinner" /> : st.logged_in ? (
+              <div className="row"><span className="grow">Logged in as <b>{st.user}</b>. You can publish a model from its page on the leaderboard.</span><button className="sm" disabled={busy} onClick={() => go(async () => setSt(await api.hubLogout()))}>Log out</button></div>
+            ) : <>
+              <div className="small muted">Importing public models needs no account. To publish your own, create a free account at huggingface.co, then make an access token with <b>write</b> permission at <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer">huggingface.co/settings/tokens ↗</a> and paste it here.</div>
+              <div className="row">
+                <input className="grow" type="password" autoComplete="off" placeholder="hf_…" value={token} onChange={(e) => setToken(e.target.value)} />
+                <button className="primary" disabled={busy || !token.trim()} onClick={() => go(async () => { setSt(await api.hubLogin(token)); setToken('') })}>Log in</button>
+              </div>
+              <div className="tiny faint">The token is checked and then stored on this computer by the official Hugging Face library, the same place its command-line tools use. A token is like a password: never share it.</div>
+              {st.error && <div className="small warn">{st.error}</div>}
+            </>}
+          </div>
+          <div className="col" style={{ gap: 8 }}>
+            <h4>Import a model</h4>
+            <div className="small muted">Models published from Lego AI carry their full recipe and weights, so they arrive on your leaderboard ready to test in Explore, retrain or fine-tune.</div>
+            <div className="row">
+              <input className="grow" placeholder="owner/name" value={repo} onChange={(e) => { setRepo(e.target.value); setCode(null) }} onKeyDown={(e) => e.key === 'Enter' && repo.trim() && doImport()} />
+              <button className="primary" disabled={busy || !repo.trim()} onClick={() => doImport()}>Import</button>
+              <button disabled={busy} onClick={() => go(async () => setFound(await api.hubModels(repo.includes('/') ? '' : repo)))}>Browse published models</button>
+            </div>
+            {code && (
+              <div className="error-box">
+                <b>This model contains custom block code.</b> Importing it will run this Python on your computer. Only continue if you trust the author and have read it.
+                {Object.entries(code).map(([f, src]) => <pre key={f} className="json" style={{ maxHeight: 200, marginTop: 6 }}>{`# ${f}\n${src}`}</pre>)}
+                <div className="row" style={{ marginTop: 6 }}><button className="danger sm" disabled={busy} onClick={() => doImport(true)}>I trust this code: import it</button><button className="sm" onClick={() => setCode(null)}>Cancel</button></div>
+              </div>
+            )}
+            {found && (found.length === 0 ? <div className="small muted">No published Lego AI models found{repo && !repo.includes('/') ? ` matching “${repo}”` : ''} yet. Be the first: publish one of yours.</div> : (
+              <table className="tbl small">
+                <tbody>{found.map((m) => <tr key={m.repo} className="clickable" onClick={() => { setRepo(m.repo); setCode(null) }}><td className="mono">{m.repo}</td><td className="num muted">{m.downloads ?? 0} downloads</td><td className="num muted">{m.updated}</td></tr>)}</tbody>
+              </table>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Publish one run to the Hugging Face Hub. */
+function Publish({ run, onChanged }: { run: RunDetail; onChanged: () => void }) {
+  const { flag } = useLearn()
+  const [st, setSt] = useState<HubStatus | null>(null)
+  const [name, setName] = useState(() => `lego-${run.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || 'model'}`)
+  const [priv, setPriv] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [url, setUrl] = useState<string | null>(run.hub?.published_at ? run.hub.url : null)
+  useEffect(() => { api.hubStatus().then(setSt).catch(() => setSt(null)) }, [])
+  const go = async () => {
+    setBusy(true); setErr(null)
+    try { const r = await api.publish(run.id, name, priv); setUrl(r.url); flag('publish'); onChanged() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      <h4>🤗 Publish to Hugging Face</h4>
+      {url && <div className="small">Published at <a href={url} target="_blank" rel="noreferrer">{url.replace('https://', '')} ↗</a></div>}
+      {st && !st.logged_in ? <div className="small muted">Log in first: press <b>🤗 Hugging Face</b> at the top of the leaderboard.</div> : (
+        <div className="row wrap small">
+          <span className="muted">{st?.user ?? '…'} /</span>
+          <input style={{ width: 210 }} value={name} onChange={(e) => setName(e.target.value.replace(/[^A-Za-z0-9._-]/g, '-'))} />
+          <label className="row muted" title="Only you can see a private model"><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> private</label>
+          <button disabled={busy || !st?.logged_in || !name} onClick={go}>{busy ? 'Uploading…' : url ? 'Publish again' : 'Publish'}</button>
+        </div>
+      )}
+      {err && <div className="error-box">{err}</div>}
+      <div className="tiny faint">Uploads the recipe (config), the trained weights, a model card with its scores and, for built-in datasets, a standalone training script. {priv ? '' : 'Anyone will be able to see and download it.'}</div>
     </div>
   )
 }
@@ -496,6 +682,8 @@ function RunDetailPanel({ id, onClose, onChanged, onMade }: { id: string; onClos
             {s.init_from && <> {s.init_from.fresh.length === 0 ? 'Every layer was carried over.' : `Carried over everything except ${s.init_from.fresh.length} layer${s.init_from.fresh.length === 1 ? '' : 's'} (${s.init_from.fresh.slice(0, 3).map((f) => f.replace(/^blocks\./, '')).join(', ')}${s.init_from.fresh.length > 3 ? ', …' : ''}), which started fresh.`}</>}
           </div>
         )}
+        {run.hub?.imported_at && <div className="small muted">Imported from <a href={run.hub.url} target="_blank" rel="noreferrer">{run.hub.repo} ↗</a>. Its scores are the ones its author measured.</div>}
+        {access.has('hub') && run.has_checkpoint && run.status === 'completed' && run.combine?.kind !== 'ensemble' && <Publish key={run.id} run={run} onChanged={onChanged} />}
         <Robustness run={run} onMeasured={(sh) => { setRun((r) => (r ? { ...r, summary: { ...r.summary, shift_acc: sh.acc, shifts: sh } } : r)); onChanged() }} />
         {run.has_checkpoint && run.status !== 'running' && run.combine?.kind !== 'ensemble' && <AdvancedActions run={run} onMade={onMade} />}
         {access.has('train.resume') && run.resumable !== false && run.has_checkpoint && run.status !== 'running' && (

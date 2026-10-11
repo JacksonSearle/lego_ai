@@ -300,6 +300,53 @@ python generate.py "ROMEO:" --length 400`}</pre>
     paper: { title: 'Optuna: A Next-generation Hyperparameter Optimization Framework', url: 'https://arxiv.org/abs/1907.10902', authors: 'T. Akiba et al.', year: 2019 },
   },
   {
+    id: 'app.datasets', section: 'app', title: 'Your own datasets', summary: 'Import a spreadsheet, a text file, folders of photos or a Hugging Face dataset.', unlock: { feature: 'datasets.custom' }, action: { tab: 'datasets', label: 'Open Datasets' },
+    body: <>
+      <P>So far every model learned from data someone else prepared. The <b>Datasets</b> tab lets you bring your own. Start with the <b>worked example</b> there: it imports a small real table step by step and explains each choice. Then do one yourself.</P>
+      <P>A dataset is many <b>examples</b>. For each one the model needs the <b>inputs</b> it may look at and the <b>answer</b> (the label) it should learn to give. Four kinds of file work:</P>
+      <ul>
+        <li><b>A table (.csv).</b> One row per example, one header row. Pick the answer column, which must be a category (“spam / not spam”, a species, a grade). The inputs are either several number columns or one text column.</li>
+        <li><b>Text (.txt).</b> No answers needed: the model learns to predict the next character, as with Tiny Shakespeare. Afterwards you can chat with it in Explore.</li>
+        <li><b>Pictures (.zip).</b> One folder per class with the pictures inside. They are cropped square and shrunk to the size you choose.</li>
+        <li><b>Hugging Face.</b> Paste the name of a public dataset from huggingface.co/datasets and the first 20,000 rows are fetched as a table.</li>
+      </ul>
+      <P>Three things happen on import, and each matters:</P>
+      <ul>
+        <li><b>A test set is held back</b> (15% by default) that the model never trains on. A further slice of the rest becomes the validation set.</li>
+        <li><b>Numbers are rescaled</b> so every input is centered on zero with a similar spread. Missing numbers become the column’s average.</li>
+        <li><b>Words become numbers.</b> The 20,000 most common words each get an id; rarer ones share an “unknown” id.</li>
+      </ul>
+      <P>The import screen tells you what always guessing the most common class would score. Beat that number and the model has learned something. With very small datasets (a few hundred rows), expect scores to jump around between seeds: use the seeds option on the Train page to see how much.</P>
+      <Tip>Templates adapt to your dataset: open Templates in the Builder after choosing it. Blocks size themselves to your inputs and your number of classes.</Tip>
+    </>,
+    quiz: { q: 'Why hold back a test set the model never trains on?', options: ['To make training faster', 'To check it learned the pattern and did not just memorize the examples', 'Because the file is too big', 'To balance the classes'], answer: 1, explain: 'Only examples the model has never seen can show whether it generalizes.' },
+  },
+  {
+    id: 'app.multidata', section: 'app', title: 'One model, many datasets', summary: 'Train the same design on several datasets and compare models by their average.', unlock: { feature: 'datasets.custom' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P>A model that wins on one dataset may just suit that dataset. Researchers judge an architecture by how it does across <b>several</b>. You can do the same.</P>
+      <P>On the Train page, open <b>Model & data</b> and press <b>Show datasets this model fits</b>. Tick the extra ones and the Train button becomes <b>Train on N datasets</b>: the same blocks and settings are trained on each in turn. This works because blocks resize themselves: a convolution takes 1 or 3 color channels, the output head makes as many outputs as there are classes. A model for images still cannot read text, so only datasets of a fitting kind are offered.</P>
+      <P>On the Leaderboard, switch from <b>Runs</b> to <b>By model</b>. Each row is now one model design, with its best score on every dataset and the <b>average</b>. Models tested on more datasets are listed first, because an average over one dataset cannot be compared with an average over four.</P>
+      <Tip>Averages hide detail. A model that is best on average may be worst on the one dataset you care about, so read the columns too.</Tip>
+    </>,
+  },
+  {
+    id: 'app.hub', section: 'app', title: 'Hugging Face: publish and import models', summary: 'Share a trained model with the world, and load other people’s.', unlock: { feature: 'hub' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P><b>Hugging Face</b> (huggingface.co) is the largest public library of AI models and datasets, a little like GitHub for machine learning. Most open models you hear about are published there.</P>
+      <P><b>Importing</b> needs no account. Press <b>🤗 Hugging Face</b> on the Leaderboard, type a model’s name (owner/name) or browse models published from Lego AI, and press Import. The model arrives as a run on your leaderboard, with its weights, so you can test it in Explore, look at its mistakes, fine-tune it or retrain it yourself to check the author’s numbers.</P>
+      <P><b>Publishing</b> needs a free account and an <b>access token</b>: a long secret string that lets this app upload on your behalf. Create one with write permission at huggingface.co/settings/tokens, paste it into the same window once, then open any finished run and press <b>Publish</b>. Four things are uploaded: the recipe (the same JSON config you can export), the trained weights, a model card describing the model and its scores, and for built-in datasets a standalone training script.</P>
+      <ul>
+        <li><b>Treat the token like a password.</b> Anyone who has it can change your models. It is stored on this computer only.</li>
+        <li><b>Public means public.</b> Tick “private” if only you should see the model.</li>
+        <li><b>Your own datasets are not uploaded.</b> A model trained on data you imported is published without that data. Others can use the model, but can only retrain it if they have the same dataset.</li>
+        <li><b>Be careful with code.</b> A model that uses custom blocks contains Python. Before importing one, the app shows you the code and asks. Only run code from people you trust.</li>
+      </ul>
+      <P>Datasets come from Hugging Face too: see the Datasets tab.</P>
+    </>,
+    quiz: { q: 'Someone asks you to send them your Hugging Face access token so they can “check your model”. What do you do?', options: ['Send it, tokens are public', 'Refuse: the token is a password. They can see a public model without it', 'Post it in the model card', 'Email it instead of messaging it'], answer: 1, explain: 'Public models need no token to view or download. A token gives control of your account.' },
+  },
+  {
     id: 'app.fuse', section: 'app', title: 'Fusing blocks into your own block', summary: 'Select a few blocks and turn them into one reusable block. No code needed.', unlock: { feature: 'custom.page' }, action: { tab: 'build', label: 'Open the Builder' },
     body: <>
       <P>Real architectures are built from repeated <b>stages</b>: “convolution, batch norm, pooling” or “attention, then feed-forward”. When you find a group of blocks you keep stacking together, fuse it into one block of your own.</P>

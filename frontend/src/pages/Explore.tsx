@@ -118,7 +118,7 @@ function Scatter({ examples, size = 320 }: { examples: { vector?: number[]; labe
 function DataBrowser() {
   const { datasets, draft } = useStore()
   const { access, flag } = useLearn()
-  const allowed = datasets.filter((d) => !access.datasets || access.datasets.has(d.id))
+  const allowed = datasets.filter((d) => !access.datasets || access.datasets.has(d.id) || d.custom)
   const [dsId, setDsId] = useState(() => sessionStorage.getItem('lego-ai/explore-ds') || draft.dataset)
   const ds = allowed.find((d) => d.id === dsId) ?? allowed[0]
   const [split, setSplit] = useState('train')
@@ -535,7 +535,7 @@ function Chat() {
     return (
       <div className="empty" style={{ margin: 30 }}>
         <h3 style={{ color: 'var(--text)' }}>No text-generating models yet</h3>
-        <p>Chat works with language models trained on <b>Tiny Shakespeare</b>. {access.datasets && !access.datasets.has('shakespeare') ? 'Unlock Embeddings in the Skill Tree to get that dataset.' : 'Build one (for example the “Char LSTM” or “Tiny GPT” template), train it, and it will appear here.'}</p>
+        <p>Chat works with language models: ones trained on <b>Tiny Shakespeare</b> or on a text file you imported. {access.datasets && !access.datasets.has('shakespeare') ? 'Unlock Embeddings in the Skill Tree to get that dataset.' : 'Build one (for example the “Char LSTM” or “Tiny GPT” template), train it, and it will appear here.'}</p>
         {access.has('builder') && <button onClick={() => setTab('build')}>Open the Builder</button>}
       </div>
     )
