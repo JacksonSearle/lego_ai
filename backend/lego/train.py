@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from . import config as cfgmod
-from . import custom, datasets, model as modelmod, runs
+from . import custom, datasets, model as modelmod, runs, shifts
 from .jobs import Job, Stopped
 from .rng import RngStream, isolated
 
@@ -189,6 +189,28 @@ def train_run(
         emit({"type": "status", "message": "Building model…"})
         with rng:
             net, info, _ = build_model(config)
+        if config.get("init_from"):
+            # Fine-tuning: replace the fresh random weights with another run's trained ones.
+            from .combine import best_state
+
+            try:
+                src, start = best_state(config["init_from"]["run_id"])
+            except KeyError:
+                raise ValueError("The model this run starts from has been deleted.") from None
+            # Copy every layer whose shape still matches. Layers that changed (a different input
+            # size, more classes) keep their fresh random weights. So does the output head when
+            # the dataset is a different one: its outputs meant other classes there.
+            skip: tuple[str, ...] = ()
+            if src["config"]["dataset"]["id"] != config["dataset"]["id"]:
+                skip = tuple(f"blocks.b_{str(b['id']).replace('.', '_')}." for b in config["architecture"]["blocks"] if b["type"] == "classifier")
+            own = net.state_dict()
+            copied = [k for k, v in start.items() if k in own and own[k].shape == v.shape and not k.startswith(skip or ("\0",))]
+            if not copied:
+                raise ValueError("Nothing in the starting model fits this architecture, so there are no weights to carry over.")
+            own.update({k: start[k] for k in copied})
+            net.load_state_dict(own)
+            fresh = sorted({k.rsplit(".", 1)[0] for k in own if k not in copied and own[k].is_floating_point()})
+            run["summary"]["init_from"] = {"copied": len(copied), "of": len(own), "fresh": fresh}
         apply_dropout_override(net, t.get("dropout"))
         net.to(device)
         n_params = modelmod.count_params(net)
@@ -365,6 +387,13 @@ def train_run(
         emit({"type": "status", "message": "Evaluating on the test set…"})
         test = evaluate(net, data, "test", device, t)
         run["summary"].update({"test_acc": test["acc"], "test_loss": test["loss"], "duration": prev_duration + time.time() - started})
+        if shifts.available(config["dataset"]["id"]):
+            emit({"type": "status", "message": "Testing on shifted data…"})
+            try:
+                shifted = shifts.measure(net, config["dataset"], device)
+                run["summary"].update({"shift_acc": shifted["acc"], "shifts": shifted})
+            except Exception:  # noqa: BLE001 - an extra measurement must never fail a finished run
+                pass
         run["status"] = "completed"
         _check_reproduction(run)
         runs.save(run)

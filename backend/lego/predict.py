@@ -88,9 +88,14 @@ def _load(run_id: str):
             return hit[1:]
         cfg = runs.get(run_id)["config"]
         data = datasets.load_for(cfg["dataset"])
-        net, info, _ = build_model(cfg, seed=0)
         state = torch.load(path, map_location="cpu", weights_only=False)
-        net.load_state_dict(state["model"])
+        if "ensemble" in state:
+            from .combine import build_ensemble
+
+            net, info = build_ensemble(state["ensemble"]), datasets.info_for(cfg["dataset"])
+        else:
+            net, info, _ = build_model(cfg, seed=0)
+            net.load_state_dict(state["model"])
         net.eval()
         _models[run_id] = (stamp, net, info, data)
         while len(_models) > MAX_LOADED_MODELS:

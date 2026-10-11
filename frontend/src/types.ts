@@ -140,6 +140,8 @@ export interface RunConfig {
   architecture: { blocks: BlockInst[] }
   training: Training
   custom_blocks?: Record<string, { source: string; sha256: string }>
+  /** Fine-tuning: the run whose trained weights this one starts from. */
+  init_from?: { run_id: string; name?: string | null }
   /** Weight-initialization scheme (absent = 1, the original). */
   init_stream?: number
   environment?: Record<string, unknown>
@@ -162,6 +164,11 @@ export interface Summary {
   reproduce_diff?: Record<string, [number, number]>
   steps_per_epoch?: number
   train_examples?: number
+  /** Average accuracy over the shifted test sets (image datasets), and the detail. */
+  shift_acc?: number
+  shifts?: ShiftScores
+  /** Fine-tuned runs: how many of the starting model's tensors were copied, and which layers started fresh. */
+  init_from?: { copied: number; of: number; fresh: string[] }
   /** Set while a run is paused mid-training: the (fractional) epoch it stopped at. */
   paused_at?: number
 }
@@ -182,14 +189,43 @@ export interface RunRow {
   dataset: string
   summary: Summary
   error: string | null
-  study: { id: string; trial: number; params: Record<string, unknown>; best: boolean } | null
+  study: { id: string; trial: number; params: Record<string, unknown>; best: boolean; kind?: string } | null
   reproduce_of: string | null
   group: SeedGroup | null
   training: Training
   n_blocks: number
   block_types: string[]
   has_checkpoint: boolean
+  /** Soups, ensembles and MonoSoups: what kind and from how many models. */
+  combine?: { kind: 'soup' | 'ensemble' | 'monosoup'; method: string; n: number } | null
+  scale?: ScaleTag | null
+  /** A fine-tuned variation made while cooking a soup. */
+  variation?: { id: string; index: number; n: number; of: string } | null
+  init_from?: { run_id: string; name?: string | null } | null
 }
+
+/** One point of a scaling study. */
+export interface ScaleTag { id: string; axis: 'width' | 'data'; index: number; n: number; factor: number; name: string; n_train: number }
+
+export interface ShiftScores { acc: number; clean: number; each: Record<string, number> }
+/** One shifted test set of a dataset, with an example image. */
+export interface ShiftInfo { id: string; name: string; description: string; real: boolean; n: number; image: number[]; shape: number[]; label: number }
+
+export interface CombineMember { id: string; name: string; val_acc: number | null; test_acc: number | null; used: boolean }
+export interface CombineInfo {
+  kind: 'soup' | 'ensemble' | 'monosoup'
+  method: string
+  note: string
+  shared_start?: boolean
+  members: CombineMember[]
+  layers?: { layer: string; rank: number; of: number; lam_high: number; lam_low: number }[]
+  shift_before?: number | null
+}
+
+/** The result event of a combine job. */
+export interface Combined { run_id: string; name: string; kind: string; val_acc: number; test_acc: number; best_member: number; note: string; shift_acc?: number | null; shift_before?: number | null }
+
+export interface ScalePlanRow { factor: number; label: string; params: number; n_train: number; error: string | null }
 
 export interface Stat { mean: number | null; std: number | null; min: number | null; max: number | null; n: number }
 
@@ -248,6 +284,10 @@ export interface RunDetail {
   reproduce_of?: string | null
   study?: RunRow['study']
   group?: SeedGroup | null
+  combine?: CombineInfo | null
+  scale?: ScaleTag | null
+  /** False for soups and ensembles: they have weights but no optimizer state to continue from. */
+  resumable?: boolean
 }
 
 export interface Job {

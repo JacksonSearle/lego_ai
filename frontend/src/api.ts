@@ -1,5 +1,5 @@
 import type {
-  Predictions, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, Template,
+  Predictions, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, ScalePlanRow, ShiftInfo, ShiftScores, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -51,6 +51,13 @@ export const api = {
   probe: (config: RunConfig) => req<ProbeResult>('POST', '/api/batch-size', { config }),
   probeQuick: (config: RunConfig) => req<ProbeResult>('POST', '/api/batch-size', { config, only_requested: true }),
   tune: (config: RunConfig, optuna: unknown) => req<{ job: Job }>('POST', '/api/tune', { config, optuna }),
+  datasetShifts: (dataset: string, example = 0) => req<ShiftInfo[]>('GET', `/api/datasets/${dataset}/shifts?example=${example}`),
+  measureShifts: (runId: string) => req<ShiftScores>('POST', `/api/runs/${runId}/shifts`),
+  combine: (kind: string, runs: string[]) => req<{ job: Job }>('POST', '/api/combine', { kind, runs }),
+  cook: (runId: string, o: { n: number; epochs: number; lr_scale: number }) => req<{ job: Job }>('POST', `/api/runs/${runId}/cook`, o),
+  autopilot: (runId: string, o: { rounds: number; architecture: boolean }) => req<{ job: Job }>('POST', `/api/runs/${runId}/autopilot`, o),
+  scalingPlan: (config: RunConfig, axis: string, factors: number[]) => req<ScalePlanRow[]>('POST', '/api/scaling/plan', { config, axis, factors }),
+  scaling: (config: RunConfig, axis: string, factors: number[]) => req<{ job: Job }>('POST', '/api/scaling', { config, axis, factors }),
   importConfig: (cfg: unknown) =>
     req<{ config: RunConfig; notes: string[]; env_diffs: string[]; ok: boolean; error: string | null }>('POST', '/api/config/import', cfg),
 

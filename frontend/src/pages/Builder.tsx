@@ -183,6 +183,7 @@ export function Builder() {
       blocks: t.blocks.map((b) => ({ ...b, id: newId() })),
       training: { ...(meta?.defaults ?? {}), ...d.training, ...t.training },
       custom_blocks: undefined,
+      init_from: undefined,
       origin: 'template',
       edited: false,
     }))
@@ -354,7 +355,7 @@ export function Builder() {
             </label>
           )}
           {access.has('builder.templates') && <button onClick={() => setShowTemplates(true)} data-tour="templates">Templates</button>}
-          <button className="ghost" onClick={() => { setDraft((d) => ({ ...d, blocks: [], custom_blocks: undefined })); setSelected(null) }} disabled={!blocks.length}>
+          <button className="ghost" onClick={() => { setDraft((d) => ({ ...d, blocks: [], custom_blocks: undefined, init_from: undefined })); setSelected(null) }} disabled={!blocks.length}>
             Clear
           </button>
           <button className="ghost" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)">↶</button>
@@ -478,7 +479,7 @@ export function Builder() {
                 <TemplateGrid templates={templates.filter((t) => t.famous)} specs={specs} onUse={useTemplate} />
               </>}
               <div className="row" style={{ marginTop: 16 }}>
-                <button onClick={() => { setDraft((d) => ({ ...d, blocks: [], name: 'My model' })); setShowTemplates(false) }}>Start from scratch</button>
+                <button onClick={() => { setDraft((d) => ({ ...d, blocks: [], name: 'My model', init_from: undefined })); setShowTemplates(false) }}>Start from scratch</button>
                 <span className="small muted">An empty stack: drag blocks in from the palette.</span>
               </div>
             </div>

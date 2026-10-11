@@ -57,7 +57,7 @@ export function Lab() {
     if (running && session) await api.stopJob(session.jobId)
     const blocks = labBlocks(opt.n, nLayers)
     const name = `${opt.label} hidden layer (${opt.n})${nLayers > 1 ? ` ×${nLayers}` : ''}`
-    setDraft((d) => ({ ...d, name, dataset: 'mnist', train_subset: null, blocks, origin: 'lab', edited: false }))
+    setDraft((d) => ({ ...d, name, dataset: 'mnist', train_subset: null, blocks, init_from: undefined, origin: 'lab', edited: false }))
     try {
       const cfg = { name, dataset: { id: 'mnist', train_subset: null }, architecture: { blocks }, training: effectiveTraining(draft.training) }
       const { job, run } = await api.train(cfg)

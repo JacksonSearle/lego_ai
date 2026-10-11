@@ -103,6 +103,22 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
   torchvision for image datasets) and reproduces the app's result exactly on CPU.
 - **Famous architectures.** Templates include LeNet-5, VGG-16, ResNet-18/34/50/101/152, ViT-Base,
   both Transformer sizes from "Attention Is All You Need" and GPT-2 small, at published sizes.
+- **Combining models** (Leaderboard). Tick several runs and press Combine for a soup (averaged
+  weights), a greedy soup, an ensemble (averaged predictions) or a mixture of experts (a trained
+  gate over the members). On a single run: Cook a soup (fine-tune several variations from it,
+  then average them) and MonoSoup ("Model soups need only one ingredient", arXiv 2602.09689).
+  Results are ordinary runs that work in Explore.
+- **Fine-tuning.** Fine-tune on a run starts a new run from its trained weights, on the same or a
+  different dataset. Matching layers are copied; changed layers, and the output head when the
+  dataset differs, start fresh.
+- **Shifted test data.** Image models are also scored on fixed corrupted copies of 2,000 test
+  images (noise, blur, rotation, off-center, low contrast, low resolution) and, where available,
+  a second real dataset (USPS for MNIST, CIFAR-10.1 for CIFAR-10). The Leaderboard shows the
+  average as "Shifted"; a run's detail shows each one with an example image.
+- **Autopilot.** Starts from a trained run and hill-climbs: each round makes a small change to
+  the settings or the architecture, retrains, and keeps it if validation accuracy improves.
+- **Scaling tab.** Trains one design at several widths, or on several amounts of data, plots the
+  result on log-log axes and fits a power law.
 - **Size advisor.** Every model gets a memory and time estimate. If it is too big or very slow for
   this computer, the Builder and the Hardware tab say so and list how many T4, RTX 4090, A100 or
   H100 GPUs it would take, with rough epoch times.
@@ -211,12 +227,16 @@ backend/lego/
   seeds.py        multi-seed groups
   hardware.py     hardware report, memory/time estimates for this machine and reference GPUs
   export.py       standalone train.py / generate.py / predict.py
+  combine.py      soups, ensembles, mixture of experts, MonoSoup, soup recipe
+  autopilot.py    local search starting from a trained run
+  scaling.py      scaling studies (model width or data size)
+  shifts.py       shifted test sets (corruptions, USPS, CIFAR-10.1) and robustness scores
   progress.py     learner profiles
   probe_worker.py batch-size tests in a child process
   runs.py, jobs.py   storage, background jobs + event streams
   server.py       FastAPI app
 frontend/src/
-  pages/          Lab, Builder, Train, Leaderboard, Explore, CustomBlocks
+  pages/          Lab, Builder, Train, Leaderboard, Explore, Scaling, CustomBlocks
   learn/          curriculum, lessons, diagrams, guidebook, teacher demo
   components/     Brick, ParamField, LineChart, LiveCharts, ArchView, SizeAdvisor
   store.tsx       app state, undo/redo, live job stream

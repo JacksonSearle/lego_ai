@@ -6,12 +6,13 @@ import {
   Schedules, Shapes, TrainingLoop,
 } from './diagrams/concepts'
 
-export type Section = 'start' | 'app' | 'train' | 'general' | 'image' | 'text'
+export type Section = 'start' | 'app' | 'train' | 'advanced' | 'general' | 'image' | 'text'
 
 export const SECTIONS: { id: Section; title: string; icon: string }[] = [
   { id: 'start', title: 'Start here', icon: '🚀' },
   { id: 'app', title: 'Using the app', icon: '🧭' },
   { id: 'train', title: 'Training knobs', icon: '🎛️' },
+  { id: 'advanced', title: 'Advanced techniques', icon: '🧪' },
   { id: 'general', title: 'Blocks · General', icon: '🧱' },
   { id: 'image', title: 'Blocks · Image', icon: '🖼️' },
   { id: 'text', title: 'Blocks · Text', icon: '📝' },
@@ -424,6 +425,99 @@ python generate.py "ROMEO:" --length 400`}</pre>
       <P>Gradient clipping (under Stability) caps how big a single update can get, essential for RNNs.</P>
     </>,
     paper: { title: 'Decoupled Weight Decay Regularization (AdamW)', url: 'https://arxiv.org/abs/1711.05101', authors: 'I. Loshchilov, F. Hutter', year: 2017 },
+  },
+  {
+    id: 'adv.soup', section: 'advanced', title: 'Model soups: averaging weights', summary: 'Blend several trained models into one that costs no more to run.', unlock: { feature: 'advanced.combine' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P>A trained model is just a long list of numbers: its weights. A <b>model soup</b> takes several trained models with the same architecture and averages them, weight by weight. The result is one ordinary model, the same size and speed as any single ingredient, that is often a little more accurate and more robust than the best of them.</P>
+      <P><b>The catch: the ingredients must start from the same place.</b> Two models trained from different random weights learn the same job in different internal arrangements. Neuron 5 in one might do what neuron 31 does in the other. Average them and you get nonsense. Models that share a starting point and are then trained a bit further in different ways stay close enough for the average to make sense.</P>
+      <P>You can see both sides here:</P>
+      <ul>
+        <li><b>The failure.</b> On the Leaderboard, tick two models with the same architecture but different seeds and press <b>Combine</b>, then <b>Soup</b>. Accuracy usually collapses.</li>
+        <li><b>The recipe that works.</b> Open a trained model and press <b>Cook a soup</b>. The app fine-tunes several variations from that model (different data order and learning rates), then makes a soup, a greedy soup and an ensemble from them so you can compare.</li>
+      </ul>
+      <P>A <b>uniform soup</b> averages every ingredient. A <b>greedy soup</b> starts with the best one and adds the others one at a time, keeping each only if validation accuracy does not drop, so one bad ingredient cannot spoil it.</P>
+      <Tip>Keep the variations gentle: a low learning rate and a few epochs. If the ingredients drift far apart, the soup gets worse, not better.</Tip>
+    </>,
+    quiz: { q: 'Why does averaging two models trained from different random seeds usually fail?', options: ['They have different numbers of weights', 'Their weights are arranged differently inside, so the average mixes unrelated things', 'Averaging always lowers accuracy', 'The learning rates were different'], answer: 1, explain: 'Each model found its own internal arrangement. Only models that share a starting point line up well enough to average.' },
+    paper: { title: 'Model soups: averaging weights of multiple fine-tuned models improves accuracy without increasing inference time', url: 'https://arxiv.org/abs/2203.05482', authors: 'M. Wortsman et al.', year: 2022 },
+  },
+  {
+    id: 'adv.ensemble', section: 'advanced', title: 'Ensembles and a mixture of experts', summary: 'Ask several models and combine their answers.', unlock: { feature: 'advanced.combine' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P>An <b>ensemble</b> keeps every model and combines their <i>answers</i> instead of their weights. Each model gives a probability for every class, and the ensemble averages them. Because the models never have to line up inside, any mix works: an MLP, a CNN and a transformer can vote together.</P>
+      <P>Ensembles help when the members make <b>different mistakes</b>. If one model is unsure whether a digit is a 4 or a 9 and two others are confident it is a 9, the average is right. Three copies of the same mistake help nobody. This is why models with different architectures or seeds make good ensembles even though they make terrible soups.</P>
+      <P>The price is cost: an ensemble of five models needs five times the memory and time for every prediction. A soup gives up some of the gain to stay the price of one.</P>
+      <P>A <b>mixture of experts</b> goes one step further. Instead of trusting every model equally, a small trained <b>gate</b> looks at what the experts say and decides how much to trust each one for this particular input. Here the gate is fitted on half of the validation set and scored on the other half, so its score is honest.</P>
+      <P>Tick two or more models on the Leaderboard, press <b>Combine</b> and choose <b>Ensemble</b> or <b>Mixture of experts</b>. The result is a model you can test in Explore like any other.</P>
+      <Tip>The famous “mixture of experts” layers inside large language models use the same idea in miniature: a gate routes each token to a few specialist sub-networks.</Tip>
+    </>,
+    quiz: { q: 'Which pair would make the most useful ensemble?', options: ['Two identical copies of one model', 'Two good models that tend to fail on different examples', 'One good model and one that guesses randomly', 'Two models trained on different datasets'], answer: 1, explain: 'Averaging only fixes errors that the members do not share.' },
+  },
+  {
+    id: 'adv.monosoup', section: 'advanced', title: 'A soup from one ingredient (MonoSoup)', summary: 'Get some of a soup’s benefit from a single model, with no extra training.', unlock: { feature: 'advanced.combine' },
+    body: <>
+      <P>Cooking a soup means training many models. A 2026 paper asks: can one fine-tuned model be improved the same way, on its own?</P>
+      <P>The idea starts from the <b>update</b>: for each layer, the trained weights minus the weights it started from. That update can be split into <b>directions</b> ranked by strength (a tool called the singular value decomposition does this). A few strong directions carry most of the new skill. Many weak ones carry a mix of noise and small useful adjustments.</P>
+      <P>Soups work because averaging keeps what the ingredients agree on and cancels what they do not. MonoSoup imitates that with one model: per layer, it measures how concentrated the update is and how much of it sits in the weak directions, and from those two numbers sets how strongly to keep the strong part and the weak part. It needs no data and has no settings.</P>
+      <P>Open a trained model on the Leaderboard and press <b>MonoSoup</b>. Open the result and expand <b>Per-layer weights</b> to see, layer by layer, how many strong directions there were and how much of each part was kept.</P>
+      <P><b>What to expect.</b> The method was built for large models fine-tuned from a pretrained one, where the goal is to keep new skills without forgetting old ones, mostly measured on data that differs from the training set. For a small model trained here from random weights there is no old knowledge to protect, so the usual result is a small change in either direction. To test it under the conditions it was built for, fine-tune a model from one dataset to another (for example Fashion-MNIST to MNIST, see the fine-tuning lesson), make a MonoSoup of the result, and compare the <b>shifted test</b> accuracy before and after. The result panel shows both numbers. Do not expect much from models this small: the gains in the paper come from very large pretrained models, and here the change is often slightly negative.</P>
+    </>,
+    paper: { title: 'Model soups need only one ingredient', url: 'https://arxiv.org/abs/2602.09689', authors: 'A. Abdollahpoorrostam, N. Dimitriadis, A. Hazimeh, P. Frossard', year: 2026 },
+  },
+  {
+    id: 'adv.finetune', section: 'advanced', title: 'Fine-tuning: starting from a trained model', summary: 'Reuse one model’s weights as the starting point for another run, and learn when that helps.', unlock: { feature: 'advanced.combine' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P>Every run so far began from random weights. <b>Fine-tuning</b> begins from the weights of a model that is already trained. The first run is then called <b>pretraining</b>. Nearly every modern AI system is made this way: one huge pretrained model, fine-tuned many times for different jobs.</P>
+      <P>To try it: open a trained model on the Leaderboard and press <b>Fine-tune</b>. On the Train page, change the dataset if you like (Fashion-MNIST and MNIST share an image size, so a model moves between them unchanged) and press Train. Layers whose shapes still match are copied over. A layer that had to change starts fresh, and so does the output head whenever the dataset is a different one, because its outputs meant other classes before.</P>
+      <P><b>When does a pretrained start help?</b> When the pretraining data was much larger than the new data and taught something the new task needs. A model that has seen a billion photos knows edges, textures and object parts, and learning cats versus dogs from 100 examples on top of that is easy.</P>
+      <P><b>When does it not?</b> When the first task was small or unrelated. Try it here: pretrain on Fashion-MNIST, fine-tune on a few hundred MNIST digits, and compare with the same model trained from scratch on the same digits. From scratch usually wins. Clothing features are not what digits need, and a network that has already settled into one solution adapts less easily than a fresh one. Researchers call these <b>negative transfer</b> and <b>loss of plasticity</b>. Seeing a famous technique fail, and understanding why, is worth as much as seeing it work.</P>
+      <ul>
+        <li><b>Learning rate.</b> A lower rate preserves more of the old model; a higher one adapts faster. Try both.</li>
+        <li><b>Same dataset.</b> Fine-tuning a model on the dataset it was trained on, with a different seed or learning rate, is how soup ingredients are made (Cook a soup does exactly this).</li>
+        <li><b>Robustness.</b> Fine-tuning moves a model away from what it knew. Compare the <b>shifted test</b> score before and after, and see whether a soup or a MonoSoup wins any of it back.</li>
+      </ul>
+    </>,
+    quiz: { q: 'In which case is a pretrained start most likely to beat training from scratch?', options: ['The pretraining data was small and unrelated', 'The pretraining data was huge and related, and the new task has little data', 'The new task has unlimited data', 'Always'], answer: 1, explain: 'Transfer pays when the old task taught general, relevant features and the new task cannot teach them by itself.' },
+    paper: { title: 'On Warm-Starting Neural Network Training', url: 'https://arxiv.org/abs/1910.08475', authors: 'J. Ash, R. Adams', year: 2020 },
+  },
+  {
+    id: 'adv.robust', section: 'advanced', title: 'Shifted test data: is the model robust?', summary: 'A test score only tells you about data that looks like the training data.', unlock: { feature: 'leaderboard.page' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P>A test set is drawn from the same source as the training set: same scanner, same framing, same kind of handwriting. Real use rarely is. A model with 99% test accuracy can fall apart on digits that are slightly rotated or photographed in bad light. This gap is called <b>distribution shift</b>, and how well a model survives it is its <b>robustness</b>.</P>
+      <P>For the image datasets the app measures this after every training run. It takes 2,000 test images and changes them in six ways the model never saw in training: noise, blur, rotation, moving off-center, low contrast and low resolution. Where a second real dataset with the same classes exists it uses that too: <b>USPS</b> digits (scanned from envelopes) for MNIST models and <b>CIFAR-10.1</b> (new photos collected years later) for CIFAR-10 models. The <b>Shifted</b> column on the Leaderboard is the average over all of them.</P>
+      <P>Open any run to see each shifted set, a sample of what it looks like and the accuracy on it. Things worth trying:</P>
+      <ul>
+        <li>Compare an MLP with a CNN at the same test accuracy. Which one survives a sideways shift? (Convolution and pooling were designed for exactly that.)</li>
+        <li>Turn on <b>augmentation</b> for CIFAR-10 and see which shifts it protects against.</li>
+        <li>Fine-tune a model, then make a soup or a MonoSoup of it, and compare the shifted score before and after.</li>
+      </ul>
+      <Tip>The shifted sets are fixed, so every model faces exactly the same images. That makes the numbers comparable across runs.</Tip>
+    </>,
+    quiz: { q: 'Two models both score 98% on the test set. On rotated test images one scores 90% and the other 60%. What does that tell you?', options: ['The second model is broken', 'The test set was too easy', 'The first model learned something that holds up better when inputs change', 'Nothing, test accuracy is what matters'], answer: 2, explain: 'Equal test scores can hide very different robustness. Shifted data reveals it.' },
+    paper: { title: 'Benchmarking Neural Network Robustness to Common Corruptions and Perturbations', url: 'https://arxiv.org/abs/1903.12261', authors: 'D. Hendrycks, T. Dietterich', year: 2019 },
+  },
+  {
+    id: 'adv.autopilot', section: 'advanced', title: 'Autopilot: improving a model automatically', summary: 'Start from a model that works and let the computer keep trying small changes.', unlock: { feature: 'advanced.autopilot' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P>Optuna searches a range of settings that you describe. The <b>autopilot</b> works the other way round: you hand it a model that already trains well, and it looks for something better nearby.</P>
+      <P>Each round it copies the best model so far and makes one or two small changes: the learning rate up or down, more or less dropout, a different schedule, a layer made wider or narrower, a block repeated once more or once less. It trains the changed model from scratch. If validation accuracy improves, that model becomes the new best and the next round starts from it. If not, the change is thrown away. Rounds that fall clearly behind the best run at the same epoch are stopped early to save time.</P>
+      <P>This is <b>hill climbing</b>, the simplest kind of automated research: try a step, keep it if it goes up. Open a finished model on the Leaderboard, choose a number of rounds and press <b>Autopilot</b>. The Train page lists every round with the change it tried, and the winner is marked on the Leaderboard.</P>
+      <Tip>Two cautions. Small gains can be luck: check the winner with several seeds. And because every round is judged on the validation set, trust the <b>test</b> accuracy of the final model more than its validation score.</Tip>
+    </>,
+    quiz: { q: 'The autopilot ran 30 rounds and validation accuracy rose from 97.1% to 97.4%. What should you check before celebrating?', options: ['Nothing, higher is better', 'Whether the gain is bigger than the seed-to-seed spread, and whether test accuracy rose too', 'Whether the model has more weights', 'Whether training took longer'], answer: 1, explain: 'Picking the best of 30 tries on the same validation set flatters the winner. Seeds and the test set tell you if it is real.' },
+  },
+  {
+    id: 'adv.scaling', section: 'advanced', title: 'Scaling laws', summary: 'How much better does a model get when it is bigger, or sees more data?', unlock: { feature: 'scaling.page' }, action: { tab: 'scaling', label: 'Open Scaling' },
+    body: <>
+      <P>One of the most important findings of modern AI is that improvement with size is often <b>predictable</b>. Across a huge range, the loss of a model family falls as a <b>power law</b> of its size: every doubling of the weights (or of the data, or of the computing time) removes a roughly constant fraction of the loss.</P>
+      <P>A power law is easy to spot: plotted with both axes on a log scale it is a <b>straight line</b>. The slope tells you the exchange rate. A slope of 0.1 means doubling the model cuts the loss by about 7%, and halving the loss would take about a thousand times the weights. This is why frontier labs can plan a model costing hundreds of millions before training it, and why progress has needed such enormous computers.</P>
+      <P>The <b>Scaling</b> tab runs the experiment for your own design. It trains the model in the Builder at several widths (or on several amounts of data), plots the result on log-log axes, fits a line and tells you how well the points follow it (R² near 1 means a clean power law).</P>
+      <P>Curves often <b>bend</b>, and the bend is informative. If bigger models stop improving, something else has become the limit: usually the amount of data or the number of epochs. If more data stops helping, the model is too small to use it. The largest models may even get worse when they overfit a small dataset.</P>
+      <Tip>Keep each run short at first: a training subset and a few epochs are enough to see the shape. Then check the interesting region with more epochs.</Tip>
+    </>,
+    quiz: { q: 'On a log-log plot, loss against model size is a straight line with slope −0.05. What does doubling the model do?', options: ['Halves the loss', 'Cuts the loss by about 3%', 'Nothing', 'Doubles the loss'], answer: 1, explain: '2 to the power −0.05 is about 0.966, so each doubling removes roughly 3% of the loss. Small slopes are why big gains need huge models.' },
+    paper: { title: 'Scaling Laws for Neural Language Models', url: 'https://arxiv.org/abs/2001.08361', authors: 'J. Kaplan et al.', year: 2020 },
   },
   {
     id: 'train.hardware', section: 'train', title: 'Hardware: CPUs, GPUs and when you need more', summary: 'What your computer can train, where the time goes, and how to get access to something bigger.', unlock: { feature: 'train.page' },

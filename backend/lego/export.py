@@ -681,6 +681,8 @@ if __name__ == "__main__":
 def export_scripts(raw_config: dict) -> dict[str, str]:
     """{"train.py": ..., "generate.py" | "predict.py": ..., "README.md": ...} for a run config."""
     cfg = cfgmod.normalize(raw_config)
+    if cfg.get("init_from"):
+        raise ExportError("this model was fine-tuned from another run's weights, which a standalone script cannot recreate. Export the model it started from instead.")
     if not cfg["custom_blocks"]:
         cfg["custom_blocks"] = custom.sources_for({b["type"] for b in cfg["architecture"]["blocks"]})
     helpers, customs, net_src, info, n_params = _model_code(cfg)

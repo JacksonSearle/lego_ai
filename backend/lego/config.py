@@ -121,6 +121,9 @@ def normalize(cfg: dict) -> dict:
     # weight random stream (so an exported script reproduces the run). Absent means 1.
     if cfg.get("init_stream"):
         out["init_stream"] = int(cfg["init_stream"])
+    # Fine-tuning: start from another run's trained weights instead of fresh random ones.
+    if isinstance(cfg.get("init_from"), dict) and cfg["init_from"].get("run_id"):
+        out["init_from"] = {"run_id": str(cfg["init_from"]["run_id"]), "name": cfg["init_from"].get("name")}
     if "environment" in cfg:
         out["environment"] = cfg["environment"]
     for i, b in enumerate(out["architecture"]["blocks"]):

@@ -4,7 +4,7 @@ import { BEGINNER_TRAINING, HP_FEATURE } from './learn/curriculum'
 import type { TrainInfo } from './learn/engine'
 import { useLearn } from './learn/LearnContext'
 import type {
-  BlockInst, BlockSpec, DatasetInfo, EpochPoint, InspectResult, JobEvent, Meta, RunConfig, Stat, StepPoint, Summary, Training,
+  BlockInst, BlockSpec, Combined, DatasetInfo, EpochPoint, InspectResult, JobEvent, Meta, RunConfig, Stat, StepPoint, Summary, Training,
 } from './types'
 
 export interface Draft {
@@ -16,6 +16,8 @@ export interface Draft {
   blocks: BlockInst[]
   training: Training
   custom_blocks?: RunConfig['custom_blocks']
+  /** Fine-tuning: start from this trained run's weights instead of random ones. */
+  init_from?: RunConfig['init_from']
   /** Set when an imported run used the original weight-initialization scheme, so retraining it matches. */
   init_stream?: number
   /** Where the architecture came from, and whether the user has changed it since (for quests). */
@@ -38,11 +40,18 @@ export interface TrialRow {
   state: string
 }
 
+/** One finished size of a scaling study. */
+export interface ScalePoint {
+  index: number; factor: number; run_id: string; params?: number; n_train?: number
+  best_val_acc?: number; best_val_loss?: number; test_acc?: number; test_loss?: number; duration?: number; error?: string
+}
+
 export interface SeedRow { index: number; seed: number; run_id: string; best_val_acc: number | null; test_acc: number | null }
 
 export interface Session {
   jobId: string
-  kind: 'train' | 'tune' | 'seeds'
+  /** autopilot behaves like tune (rounds = trials); cook like seeds (variations = seeds). */
+  kind: 'train' | 'tune' | 'seeds' | 'autopilot' | 'cook' | 'scale'
   status: string
   runId: string | null
   name: string
@@ -58,6 +67,11 @@ export interface Session {
   epochPts: EpochPoint[]
   summary: Summary | null
   error: string | null
+  /** Soups and ensembles made by this job. */
+  combined: Combined[]
+  /** Scaling studies: which study, and the sizes finished so far. */
+  scale: { id: string; axis: 'width' | 'data'; n: number } | null
+  points: ScalePoint[]
   trials: TrialRow[]
   currentTrial: number | null
   best: { trial: number; value: number; params: Record<string, unknown>; run_id: string } | null
@@ -121,7 +135,7 @@ function loadDraft(): Draft | null {
 function emptySession(jobId: string, kind: Session['kind'], name: string, runId: string | null): Session {
   return {
     jobId, kind, name, runId, status: 'running', message: 'Starting…', params: null, epochs: null, totalSteps: null, trainExamples: null, baseStep: 0, device: null,
-    steps: [], epochPts: [], summary: null, error: null, trials: [], currentTrial: null, best: null, seedRuns: [], seedTotal: null, seedStats: null, startedAt: Date.now(),
+    steps: [], epochPts: [], summary: null, error: null, trials: [], currentTrial: null, best: null, seedRuns: [], seedTotal: null, seedStats: null, combined: [], scale: null, points: [], startedAt: Date.now(),
   }
 }
 
@@ -166,6 +180,14 @@ function reduce(s: Session, e: JobEvent): Session {
       }
     case 'seed_end':
       return { ...s, seedRuns: [...s.seedRuns, e as unknown as SeedRow] }
+    case 'combined':
+      return { ...s, combined: [...s.combined, e as unknown as Combined] }
+    case 'scale_start':
+      return { ...s, scale: { id: e.id as string, axis: e.axis as 'width' | 'data', n: (e.points as unknown[]).length }, seedTotal: (e.points as unknown[]).length }
+    case 'point_start':
+      return { ...s, currentTrial: (e.index as number) + 1, runId: e.run_id as string, steps: [], epochPts: [], message: `${e.label} (${(e.index as number) + 1} of ${e.n})` }
+    case 'point_end':
+      return { ...s, points: [...s.points, e as unknown as ScalePoint] }
     case 'seeds_end':
       return { ...s, seedStats: e.stats as Record<string, Stat> }
     case 'job_end':
@@ -290,7 +312,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Re-attach to a training/tuning job that is still running (e.g. after a page reload).
   useEffect(() => {
     api.jobs().then((jobs) => {
-      const j = jobs.find((x) => x.kind === 'train' || x.kind === 'tune' || x.kind === 'seeds')
+      const j = jobs.find((x) => ['train', 'tune', 'seeds', 'autopilot', 'cook', 'scale'].includes(x.kind))
       if (j) attachJob(j.id, j.kind as Session['kind'], String(j.meta.name ?? 'Run'), (j.meta.run_id as string) ?? null)
     })
   }, [attachJob])
@@ -317,6 +339,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       training: effectiveTraining(draft.training),
       custom_blocks: draft.custom_blocks,
       ...(draft.origin === 'import' && draft.init_stream ? { init_stream: draft.init_stream } : {}),
+      ...(draft.init_from ? { init_from: draft.init_from } : {}),
     }),
     [draft, effectiveTraining],
   )
@@ -332,6 +355,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     if (session.kind === 'seeds') {
       if (session.status === 'completed') flag('seeds')
+      return
+    }
+    if (session.kind !== 'train') {
+      if (session.status === 'completed') flag(session.kind === 'scale' ? 'scaling' : session.kind)
       return
     }
     if (session.status !== 'completed' || !session.runId) return
@@ -367,6 +394,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         training: { ...(meta?.defaults ?? {}), ...cfg.training },
         custom_blocks: cfg.custom_blocks,
         init_stream: cfg.init_stream ?? (cfg.environment ? 1 : undefined),
+        init_from: cfg.init_from,
         origin: 'import',
         edited: false,
       }))

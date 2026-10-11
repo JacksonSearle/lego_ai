@@ -29,6 +29,9 @@ export type Feature =
   | 'train.optuna'
   | 'custom.page'
   | 'train.repro'
+  | 'advanced.combine' // soups, ensembles, fine-tuned variations
+  | 'advanced.autopilot'
+  | 'scaling.page'
 
 export interface Stats {
   runs: number
@@ -111,9 +114,9 @@ export const LEVELS: Level[] = [
   { level: 10, xp: 3800, title: 'Tuner', unlocks: ['train.optuna'], news: ['Optuna: let the computer search for the best hyperparameters.'] },
   { level: 11, xp: 4500, title: 'Maker', unlocks: ['custom.page'], news: ['Write your own blocks in Python.'] },
   { level: 12, xp: 5250, title: 'Researcher', unlocks: ['train.repro'], news: ['Seeds, devices and step caps: full control over reproducibility.'] },
-  { level: 13, xp: 6100, title: 'Architect', unlocks: [], news: ['Keep going, more avatars await.'] },
-  { level: 14, xp: 7000, title: 'Scholar', unlocks: [], news: [] },
-  { level: 15, xp: 8000, title: 'Sage', unlocks: [], news: [] },
+  { level: 13, xp: 6100, title: 'Chef', unlocks: ['advanced.combine'], news: ['Combine trained models: soups (average the weights), ensembles and a mixture of experts.', 'Tick models on the Leaderboard, or open one and cook a soup from it.'] },
+  { level: 14, xp: 7000, title: 'Pilot', unlocks: ['advanced.autopilot'], news: ['Autopilot: start from a trained model and let the computer keep improving it.'] },
+  { level: 15, xp: 8000, title: 'Sage', unlocks: ['scaling.page'], news: ['The Scaling tab: train one design at several sizes and see if it follows a scaling law.'] },
   { level: 16, xp: 9100, title: 'Visionary', unlocks: [], news: [] },
   { level: 17, xp: 10300, title: 'Luminary', unlocks: [], news: [] },
   { level: 18, xp: 11600, title: 'Legend', unlocks: [], news: [] },
@@ -352,6 +355,12 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'a.fuse', icon: '🧱', title: 'Master Builder', desc: 'Fuse several blocks into one new block of your own.', xp: 75, done: f('fuse') },
   { id: 'a.python', icon: '🐍', title: 'Leaving the Nest', desc: 'Export a model as standalone Python scripts.', xp: 75, done: f('exportPython') },
   { id: 'a.famous', icon: '🏛️', title: 'Standing on Shoulders', desc: 'Load a famous architecture from the Templates.', xp: 50, done: f('famous') },
+  { id: 'a.soup', icon: '🍲', title: 'Soup Chef', desc: 'Average the weights of several models into one.', xp: 100, done: (s) => !!(s.flags.soup || s.flags.cook) },
+  { id: 'a.ensemble', icon: '👥', title: 'Wisdom of the Crowd', desc: 'Combine models into an ensemble or a mixture of experts.', xp: 75, done: f('ensemble') },
+  { id: 'a.finetune', icon: '🎯', title: 'Second Career', desc: 'Start a training run from another model’s trained weights.', xp: 75, done: f('finetune') },
+  { id: 'a.monosoup', icon: '🥄', title: 'One Ingredient', desc: 'Make a MonoSoup from a single model.', xp: 75, done: f('monosoup') },
+  { id: 'a.autopilot', icon: '🚀', title: 'Hands Off', desc: 'Let the autopilot improve a model for you.', xp: 100, done: f('autopilot') },
+  { id: 'a.scaling', icon: '📈', title: 'Law Finder', desc: 'Finish a scaling study.', xp: 150, done: f('scaling') },
   { id: 'a.regular', icon: '📋', title: 'Regular', desc: 'Complete 10 training runs.', xp: 75, done: (s) => s.runs >= 10 },
 ]
 

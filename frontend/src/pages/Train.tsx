@@ -156,6 +156,12 @@ export function Train() {
         <div className="train-side-body">
           {pane === 'model' && (
             <div className="col" style={{ gap: 12 }}>
+              {draft.init_from && (
+                <div className="note-box">
+                  <b>Fine-tuning.</b> This run starts from the trained weights of “{draft.init_from.name ?? draft.init_from.run_id}” instead of random ones. Every layer whose shape still matches is copied; layers you changed start fresh. You can switch the dataset: the output head then starts fresh too, since its outputs meant other classes. Try a lower learning rate than you would use from scratch.
+                  <div style={{ marginTop: 6 }}><button className="sm" onClick={() => setDraft((d) => ({ ...d, init_from: undefined }))}>Start from random weights instead</button></div>
+                </div>
+              )}
               <div className="hp-grid">
                 <label className="field">
                   <span className="lbl">Dataset</span>
@@ -506,6 +512,8 @@ function LivePanel({ task }: { task?: string }) {
           <h3 className="grow">
             {session.name}
             {session.kind === 'tune' && session.currentTrial && <span className="muted"> · trial {session.currentTrial}</span>}
+            {session.kind === 'autopilot' && session.currentTrial && <span className="muted"> · autopilot round {session.currentTrial}</span>}
+            {session.kind === 'cook' && session.currentTrial && <span className="muted"> · variation {session.currentTrial}</span>}
           </h3>
           <span className={`pill ${statusCls}`}>{session.status === 'running' && <span className="spinner" style={{ width: 10, height: 10 }} />} {paused ? 'paused' : session.status}</span>
           {session.status !== 'running' && <button className="sm ghost" onClick={clearSession}>Dismiss</button>}
@@ -581,8 +589,31 @@ function LivePanel({ task }: { task?: string }) {
         </div></div>
       )}
 
-      {session.kind === 'seeds' && <SeedsTable />}
-      {session.kind === 'tune' && <TrialsTable />}
+      {(session.kind === 'seeds' || session.kind === 'cook') && <SeedsTable />}
+      {(session.kind === 'tune' || session.kind === 'autopilot') && <TrialsTable />}
+      {session.kind === 'scale' && (
+        <div className="note-box row">
+          <span className="grow">Scaling study: {session.points.length} of {session.scale?.n ?? '?'} sizes finished. The curve is drawn on the Scaling tab.</span>
+          <button onClick={() => setTab('scaling')}>Open Scaling →</button>
+        </div>
+      )}
+      {session.combined.length > 0 && (
+        <div className="panel">
+          <div className="panel-head"><h3 className="grow">What came out</h3><button className="sm" onClick={() => setTab('leaderboard')}>View on leaderboard →</button></div>
+          <table className="tbl">
+            <thead><tr><th>Result</th><th className="right">Val acc</th><th className="right">Test acc</th><th className="right">vs best ingredient</th></tr></thead>
+            <tbody>
+              {session.combined.map((c) => (
+                <tr key={c.run_id} title={c.note}>
+                  <td>{c.name}</td><td className="num">{fmtPct(c.val_acc)}</td><td className="num">{fmtPct(c.test_acc)}</td>
+                  <td className={`num ${c.val_acc >= c.best_member ? 'ok' : 'bad'}`}>{c.val_acc >= c.best_member ? '+' : ''}{((c.val_acc - c.best_member) * 100).toFixed(2)} pts</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="panel-body small muted">A soup is one model with averaged weights: it costs the same to run as a single ingredient. An ensemble keeps every model and averages their answers, so it costs as much as all of them together.</div>
+        </div>
+      )}
 
       {session.status !== 'running' && session.kind === 'train' && (
         <div className="row">
@@ -601,7 +632,7 @@ function SeedsTable() {
   return (
     <div className="panel">
       <div className="panel-head">
-        <h3 className="grow">Seeds {session.seedRuns.length}/{session.seedTotal ?? '?'}</h3>
+        <h3 className="grow">{session.kind === 'cook' ? 'Variations' : 'Seeds'} {session.seedRuns.length}/{session.seedTotal ?? '?'}</h3>
         {st && <span className="small">validation <b className="ok">{pm('best_val_acc')}</b> · test <b>{pm('test_acc')}</b></span>}
       </div>
       <table className="tbl">
@@ -613,6 +644,7 @@ function SeedsTable() {
           {session.status === 'running' && <tr><td colSpan={3} className="small muted"><span className="spinner" style={{ width: 10, height: 10 }} /> {session.message}</td></tr>}
         </tbody>
       </table>
+      {session.kind === 'cook' && <div className="panel-body small muted">Each variation starts from the same trained model and continues with a different data order and learning rate. Because they share a starting point, their weights can be averaged.</div>}
       {st && (
         <div className="panel-body small muted">
           The same model, trained {st.best_val_acc?.n} times with different random seeds, scored between {fmtPct(st.best_val_acc?.min)} and {fmtPct(st.best_val_acc?.max)}. A difference between two models that is smaller than this spread could just be luck.
@@ -623,17 +655,23 @@ function SeedsTable() {
 }
 
 function TrialsTable() {
-  const { session, setDraft, toast } = useStore()
+  const { session, setDraft, toast, loadConfig, setTab } = useStore()
   const { flag } = useLearn()
   if (!session) return null
+  const auto = session.kind === 'autopilot'
   const fmt = (v: unknown) => (typeof v === 'number' ? (Math.abs(v) < 0.01 && v !== 0 ? v.toExponential(2) : +v.toPrecision(3)) : String(v))
   const keys = Array.from(new Set(session.trials.flatMap((t) => Object.keys(t.params))))
   const pct = session.metric !== 'val_loss'
   return (
     <div className="panel">
       <div className="panel-head">
-        <h3 className="grow">Optuna trials</h3>
-        {session.best && (
+        <h3 className="grow">{auto ? 'Autopilot rounds' : 'Optuna trials'}{auto && session.best && <span className="small muted" style={{ fontWeight: 400 }}> · best so far {fmtPct(session.best.value)}{session.best.trial === 0 ? ' (the starting model)' : ''}</span>}</h3>
+        {auto && session.best && (
+          <button className="sm primary" onClick={async () => { const r = await api.run(session.best!.run_id); loadConfig(r.config); setTab('build'); toast('Loaded the best model so far into the Builder', 'ok') }}>
+            Open best in Builder
+          </button>
+        )}
+        {!auto && session.best && (
           <button className="sm primary" onClick={() => { setDraft((d) => ({ ...d, training: { ...d.training, ...session.best!.params } })); flag('applyBest'); toast('Applied the best hyperparameters to the training form', 'ok') }}>
             Use best params
           </button>
@@ -647,7 +685,7 @@ function TrialsTable() {
           {[...session.trials].sort((a, b) => a.trial - b.trial).map((tr) => (
             <tr key={tr.trial} className={session.best?.trial === tr.trial ? 'selected' : ''}>
               <td className="mono">{tr.trial}{session.best?.trial === tr.trial && ' ★'}</td>
-              {keys.map((k) => <td key={k} className="mono small">{fmt(tr.params[k])}</td>)}
+              {keys.map((k) => <td key={k} className="mono small">{tr.params[k] === undefined ? '' : fmt(tr.params[k])}</td>)}
               <td className="num">{tr.value == null ? '-' : pct ? fmtPct(tr.value) : fmtLoss(tr.value)}</td>
               <td><span className={`pill ${tr.state === 'complete' ? 'ok' : tr.state === 'pruned' ? 'warn' : 'bad'}`}>{tr.state}</span></td>
             </tr>

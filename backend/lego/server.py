@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from . import blocks  # noqa: F401  (registers built-ins)
-from . import batchsize, config as cfgmod, custom, datasets, export, hardware, jobs, model as modelmod, predict, progress, runs, seeds, templates, tuner
+from . import autopilot, batchsize, combine, config as cfgmod, custom, datasets, export, hardware, jobs, model as modelmod, predict, progress, runs, scaling, seeds, shifts, templates, tuner
 from .registry import CATEGORY_ORDER, REGISTRY
 from .train import train_run
 
@@ -62,6 +62,30 @@ def dataset_samples(dataset_id: str, n: int = 24, split: str = "test", seed: int
         _bad(e, 404)
     except ValueError as e:
         _bad(e)
+
+
+@app.get("/api/datasets/{dataset_id}/shifts")
+def dataset_shifts(dataset_id: str, example: int = 0):
+    """The shifted test sets of a dataset, with one example image each."""
+    if dataset_id not in datasets.DATASETS:
+        _bad(KeyError(f"Unknown dataset '{dataset_id}'"), 404)
+    return shifts.describe(dataset_id, example)
+
+
+@app.post("/api/runs/{run_id}/shifts")
+def measure_shifts(run_id: str):
+    """Score a trained run on shifted test data (for runs made before this was automatic)."""
+    def go():
+        run = runs.get(run_id)
+        net, _info, _data = predict._load(run_id)
+        shifted = shifts.measure(net, run["config"]["dataset"])
+        if not shifted:
+            raise ValueError("Shifted test data exists only for the image datasets.")
+        run = runs.get(run_id)
+        run["summary"].update({"shift_acc": shifted["acc"], "shifts": shifted})
+        runs.save(run)
+        return shifted
+    return _model_call(go)
 
 
 @app.get("/api/templates/{dataset_id}")
@@ -281,6 +305,80 @@ def export_run(run_id: str):
     return _zip(runs.get(run_id)["config"])
 
 
+# ---------------------------------------------------------------------------
+# Advanced: combining models, autopilot, scaling curves
+# ---------------------------------------------------------------------------
+@app.post("/api/combine")
+def combine_runs(body: dict = Body(...)):
+    """Make a soup, an ensemble, a gated mixture or a MonoSoup from trained runs."""
+    kind, ids, name = body.get("kind"), [str(i) for i in body.get("runs") or []], body.get("name") or None
+    try:
+        for i in ids:
+            runs.get(i)
+    except KeyError as e:
+        _bad(e, 404)
+    fns = {
+        "soup": lambda job: combine.soup(job, ids, "uniform", name),
+        "greedy": lambda job: combine.soup(job, ids, "greedy", name),
+        "ensemble": lambda job: combine.ensemble(job, ids, "average", name),
+        "gate": lambda job: combine.ensemble(job, ids, "gate", name),
+        "monosoup": lambda job: combine.monosoup(job, ids[0], name),
+    }
+    if kind not in fns or not ids:
+        _bad(ValueError("Choose what to make and which models to make it from."))
+    job = jobs.start("combine", fns[kind], meta={"name": name or kind, "combine": kind})
+    return {"job": job.to_json()}
+
+
+@app.post("/api/runs/{run_id}/cook")
+def cook_soup(run_id: str, body: dict = Body(default={})):
+    """Fine-tune several variations of a trained run, then average them."""
+    try:
+        run = runs.get(run_id)
+        combine.best_state(run_id)
+    except KeyError as e:
+        _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
+    n, epochs, scale = int(body.get("n") or 4), int(body.get("epochs") or 2), float(body.get("lr_scale") or 0.3)
+    job = jobs.start("cook", lambda job: combine.cook(job, run_id, n, epochs, scale), meta={"name": f"Soup from {run['name']}"})
+    return {"job": job.to_json()}
+
+
+@app.post("/api/runs/{run_id}/autopilot")
+def start_autopilot(run_id: str, body: dict = Body(default={})):
+    try:
+        run = runs.get(run_id)
+    except KeyError as e:
+        _bad(e, 404)
+    job = jobs.start("autopilot", lambda job: autopilot.run_autopilot(job, run_id, body), meta={"name": run["name"]})
+    return {"job": job.to_json()}
+
+
+@app.post("/api/scaling/plan")
+def scaling_plan(body: dict = Body(...)):
+    """The sizes a scaling study would train, with their weight counts (nothing is trained)."""
+    try:
+        cfg = _prepare_config(body["config"])
+        pts = scaling.plan(cfg, body.get("axis") or "width", body.get("factors") or [])
+    except (ValueError, KeyError, TypeError) as e:
+        _bad(e)
+    return [{k: p[k] for k in ("factor", "label", "params", "n_train", "error")} for p in pts]
+
+
+@app.post("/api/scaling")
+def start_scaling(body: dict = Body(...)):
+    try:
+        cfg = _prepare_config(body["config"])
+        axis, factors = body.get("axis") or "width", [float(f) for f in body.get("factors") or []]
+        if len([p for p in scaling.plan(cfg, axis, factors) if not p["error"]]) < 2:
+            raise ValueError("A scaling curve needs at least two sizes that build correctly.")
+    except (ValueError, KeyError, TypeError) as e:
+        _bad(e)
+    job = jobs.start("scale", lambda job: scaling.run_scaling(job, cfg, axis, factors), meta={"name": cfg["name"]})
+    return {"job": job.to_json()}
+
+
 @app.get("/api/studies")
 def studies():
     return tuner.list_studies()
@@ -303,6 +401,15 @@ def import_config(body: dict = Body(...)):
 # ---------------------------------------------------------------------------
 # Runs / leaderboard
 # ---------------------------------------------------------------------------
+def _has_weights(run_id: str) -> bool:
+    return runs.checkpoint_path(run_id).exists() or runs.checkpoint_path(run_id, "best").exists()
+
+
+def _brief(c: dict | None) -> dict | None:
+    """A combine record without its bulky per-layer details, for the run list."""
+    return None if not c else {"kind": c["kind"], "method": c.get("method"), "n": len(c.get("members") or [])}
+
+
 @app.get("/api/runs")
 def list_runs(include_demo: bool = False):
     out = []
@@ -314,9 +421,11 @@ def list_runs(include_demo: bool = False):
             "id": r["id"], "name": r["name"], "status": r["status"], "created_at": r["created_at"],
             "updated_at": r["updated_at"], "dataset": c["dataset"]["id"], "summary": r["summary"], "error": r.get("error"),
             "study": r.get("study"), "reproduce_of": r.get("reproduce_of"), "group": r.get("group"),
+            "combine": _brief(r.get("combine")), "scale": r.get("scale"), "variation": r.get("variation"),
+            "init_from": c.get("init_from"),
             "training": c["training"], "n_blocks": len(c["architecture"]["blocks"]),
             "block_types": [b["type"] for b in c["architecture"]["blocks"]],
-            "has_checkpoint": runs.checkpoint_path(r["id"]).exists(),
+            "has_checkpoint": _has_weights(r["id"]),
         })
     return out
 
@@ -327,7 +436,7 @@ def get_run(run_id: str):
         r = runs.get(run_id)
     except KeyError as e:
         _bad(e, 404)
-    return {**r, "metrics": runs.metrics(run_id), "has_checkpoint": runs.checkpoint_path(run_id).exists()}
+    return {**r, "metrics": runs.metrics(run_id), "has_checkpoint": _has_weights(run_id), "resumable": runs.checkpoint_path(run_id).exists()}
 
 
 def _model_call(fn):

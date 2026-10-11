@@ -9,6 +9,7 @@ import { Builder } from './pages/Builder'
 import { Explore } from './pages/Explore'
 import { Lab } from './pages/Lab'
 import { Leaderboard } from './pages/Leaderboard'
+import { Scaling } from './pages/Scaling'
 import { Train } from './pages/Train'
 import { StoreProvider, useStore } from './store'
 
@@ -21,6 +22,7 @@ const TABS: { id: string; label: string; feature?: Feature }[] = [
   { id: 'train', label: 'Train', feature: 'train.page' },
   { id: 'leaderboard', label: 'Leaderboard', feature: 'leaderboard.page' },
   { id: 'explore', label: 'Explore' },
+  { id: 'scaling', label: 'Scaling', feature: 'scaling.page' },
   { id: 'custom', label: 'Custom Blocks', feature: 'custom.page' },
   { id: 'guide', label: '📖 Guidebook' },
 ]
@@ -68,6 +70,7 @@ function Shell() {
       train: <Train />,
       leaderboard: <Leaderboard />,
       explore: <Explore />,
+      scaling: <Scaling />,
       custom: <CustomBlocks />,
       guide: <Guidebook />,
     }[tab] ?? <Lab />
