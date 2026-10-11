@@ -12,3 +12,8 @@ backend/data/studies/
 backend/data/history.json
 backend/data/progress.json
 backend/data/profiles.json
+# Local settings (leaderboard server address, worker tokens), feedback and the leaderboard host's data
+backend/data/settings.json
+backend/data/feedback.jsonl
+backend/data/host/
+dist-release/

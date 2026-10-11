@@ -34,6 +34,7 @@ export type Feature =
   | 'scaling.page'
   | 'datasets.custom' // the Datasets tab, training on several datasets, the model view of the leaderboard
   | 'hub' // Hugging Face: import and publish
+  | 'share' // the shared leaderboard and training on other computers
 
 export interface Stats {
   runs: number
@@ -121,7 +122,7 @@ export const LEVELS: Level[] = [
   { level: 15, xp: 8000, title: 'Sage', unlocks: ['scaling.page'], news: ['The Scaling tab: train one design at several sizes and see if it follows a scaling law.'] },
   { level: 16, xp: 9100, title: 'Curator', unlocks: ['datasets.custom'], news: ['The Datasets tab: import your own tables, text, images or a Hugging Face dataset.', 'Train one model on several datasets at once.', 'Leaderboard by model: averages across datasets.'] },
   { level: 17, xp: 10300, title: 'Publisher', unlocks: ['hub'], news: ['Hugging Face: publish your models to the world, and import other people’s.'] },
-  { level: 18, xp: 11600, title: 'Legend', unlocks: [], news: [] },
+  { level: 18, xp: 11600, title: 'Legend', unlocks: ['share'], news: ['The shared leaderboard: submit your best models to tracks with strict limits and see how they rank.', 'Train on another computer, such as a rented cloud GPU.'] },
 ]
 
 export const MAX_LEVEL = LEVELS[LEVELS.length - 1].level
@@ -367,6 +368,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'a.suite', icon: '🎒', title: 'Generalist', desc: 'Train one model on several datasets in one go.', xp: 100, done: f('suite') },
   { id: 'a.publish', icon: '🤗', title: 'Out in the World', desc: 'Publish a model to Hugging Face.', xp: 150, done: f('publish') },
   { id: 'a.hubimport', icon: '📥', title: 'Borrowed Brains', desc: 'Import a model from Hugging Face.', xp: 75, done: f('hubImport') },
+  { id: 'a.submit', icon: '🌍', title: 'On the Board', desc: 'Submit a model to the shared leaderboard.', xp: 150, done: f('submit') },
+  { id: 'a.worker', icon: '☁️', title: 'Head in the Cloud', desc: 'Train a model on another computer.', xp: 150, done: f('worker') },
+  { id: 'a.feedback', icon: '💬', title: 'Playtester', desc: 'Send feedback about the app.', xp: 50, done: f('feedback') },
   { id: 'a.regular', icon: '📋', title: 'Regular', desc: 'Complete 10 training runs.', xp: 75, done: (s) => s.runs >= 10 },
 ]
 

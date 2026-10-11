@@ -108,6 +108,16 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
   gate over the members). On a single run: Cook a soup (fine-tune several variations from it,
   then average them) and MonoSoup ("Model soups need only one ingredient", arXiv 2602.09689).
   Results are ordinary runs that work in Explore.
+- **Shared leaderboard.** One person hosts (`LEGO_HOST=1 ./run.sh`); everyone else connects
+  under Leaderboard → Shared and submits runs to tracks with limits (weights, epochs, data,
+  time). The host retrains every submission itself and lists the score it measures. See
+  `docs/HOSTING.md`.
+- **Cloud GPU workers.** Start a copy on a GPU machine with `LEGO_TOKEN=... HOST=0.0.0.0 ./run.sh`,
+  add it under Train → Hardware, and runs train there with live charts here and results copied
+  back. See `docs/CLOUD_GPU.md`.
+- **Playtest releases.** `scripts/make_release.sh` builds a zip with double-click launchers for
+  Mac and Windows that update themselves from GitHub releases. A Feedback button in the top bar
+  sends messages to the host. See `docs/PLAYTEST.md`.
 - **Datasets tab.** Import your own data: a CSV table (numbers or one text column, plus a
   category column), a .txt file (character-level language modeling), a zip of images in one
   folder per class, or a Hugging Face dataset by name (first 20,000 rows). A worked example
@@ -243,13 +253,16 @@ backend/lego/
   scaling.py      scaling studies (model width or data size)
   userdata.py     importing datasets (CSV, text, image zip)
   hub.py          Hugging Face: dataset import, publish and import models
+  host.py         shared leaderboard host: tracks, submission queue, verification, feedback
+  remote.py       training on another computer (worker)
+  settings.py, update.py   local settings, access token, release check
   shifts.py       shifted test sets (corruptions, USPS, CIFAR-10.1) and robustness scores
   progress.py     learner profiles
   probe_worker.py batch-size tests in a child process
   runs.py, jobs.py   storage, background jobs + event streams
   server.py       FastAPI app
 frontend/src/
-  pages/          Lab, Builder, Train, Leaderboard, Explore, Scaling, Datasets, CustomBlocks
+  pages/          Lab, Builder, Train, Leaderboard, Shared (shared board + host admin), Explore, Scaling, Datasets, CustomBlocks
   learn/          curriculum, lessons, diagrams, guidebook, teacher demo
   components/     Brick, ParamField, LineChart, LiveCharts, ArchView, SizeAdvisor
   store.tsx       app state, undo/redo, live job stream

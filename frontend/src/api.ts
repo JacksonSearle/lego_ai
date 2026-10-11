@@ -1,5 +1,5 @@
 import type {
-  DatasetPreview, HubModel, HubStatus, Predictions, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, ScalePlanRow, ShiftInfo, ShiftScores, Template,
+  AppSettings, DatasetPreview, GlobalEntry, GlobalInfo, HubModel, HubStatus, Predictions, UpdateInfo, Worker, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, ScalePlanRow, ShiftInfo, ShiftScores, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -10,6 +10,7 @@ async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   })
   const text = await res.text()
   const data = text ? JSON.parse(text) : null
+  if (res.status === 401 && url.startsWith('/api/')) window.dispatchEvent(new Event('lego-locked'))
   if (!res.ok) {
     const msg = data?.detail ?? data?.error ?? res.statusText
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg))
@@ -44,7 +45,7 @@ export const api = {
     req<{ ok: boolean; error?: string; blocks?: BlockSpec[] }>('PUT', `/api/custom-blocks/${encodeURIComponent(filename)}`, { source }),
   deleteCustom: (filename: string) => req('DELETE', `/api/custom-blocks/${encodeURIComponent(filename)}`),
 
-  train: (config: RunConfig, reproduce_of?: string) => req<{ job: Job; run: RunDetail }>('POST', '/api/train', { config, reproduce_of }),
+  train: (config: RunConfig, reproduce_of?: string, worker?: string) => req<{ job: Job; run: RunDetail }>('POST', '/api/train', { config, reproduce_of, worker }),
   resume: (runId: string, epochs: number) => req<{ job: Job; run: RunDetail }>('POST', `/api/runs/${runId}/resume`, { epochs }),
   retrain: (runId: string) =>
     req<{ job: Job; run: RunDetail; notes: string[]; env_diffs: string[] }>('POST', `/api/runs/${runId}/retrain`),
@@ -67,6 +68,19 @@ export const api = {
   hubImport: (repo: string, allow_code = false) =>
     req<{ run_id?: string; name?: string; needs_confirm?: boolean; custom_blocks?: Record<string, string> }>('POST', '/api/hub/import', { repo, allow_code }),
   publish: (runId: string, name: string, isPrivate: boolean) => req<{ repo: string; url: string; files: string[] }>('POST', `/api/runs/${runId}/publish`, { name, private: isPrivate }),
+  settings: () => req<AppSettings>('GET', '/api/settings'),
+  saveSettings: (s: Partial<Pick<AppSettings, 'server_url' | 'player'>>) => req<AppSettings>('PUT', '/api/settings', s),
+  workers: () => req<Worker[]>('GET', '/api/workers'),
+  addWorker: (name: string, url: string, token: string) => req<Worker[]>('POST', '/api/workers', { name, url, token }),
+  deleteWorker: (id: string) => req<Worker[]>('DELETE', `/api/workers/${id}`),
+  update: () => req<UpdateInfo>('GET', '/api/update'),
+  feedback: (body: { text: string; kind: string; contact: string; tab: string; include_context: boolean }) => req<{ sent: boolean; saved: boolean; email: string | null }>('POST', '/api/feedback', body),
+  globalInfo: () => req<GlobalInfo>('GET', '/api/global/info'),
+  globalBoard: (track: string) => req<{ entries: GlobalEntry[]; waiting: GlobalEntry[] }>('GET', `/api/global/board?track=${encodeURIComponent(track)}`),
+  globalCheck: (run: string, track: string) => req<{ ok: boolean; problems: string[] }>('POST', '/api/global/check', { run, track }),
+  globalSubmit: (run: string, track: string, player: string) => req<{ id: string; status: string; ahead: number }>('POST', '/api/global/submit', { run, track, player }),
+  globalSubmission: (id: string) => req<GlobalEntry>('GET', `/api/global/submissions/${id}`),
+  globalOpen: (id: string, allow_code = false) => req<{ config?: RunConfig; notes?: string[]; needs_confirm?: boolean; custom_blocks?: Record<string, string> }>('POST', '/api/global/open', { id, allow_code }),
   combine: (kind: string, runs: string[]) => req<{ job: Job }>('POST', '/api/combine', { kind, runs }),
   cook: (runId: string, o: { n: number; epochs: number; lr_scale: number }) => req<{ job: Job }>('POST', `/api/runs/${runId}/cook`, o),
   autopilot: (runId: string, o: { rounds: number; architecture: boolean }) => req<{ job: Job }>('POST', `/api/runs/${runId}/autopilot`, o),
@@ -145,4 +159,15 @@ export async function downloadPython(config: RunConfig) {
   a.download = name
   a.click()
   setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+/** Calls to this copy's own leaderboard-host admin endpoints (only meaningful in host mode). */
+export async function hostAdmin<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const token = sessionStorage.getItem('lego-ai/admin-token') ?? ''
+  const res = await fetch(`/host/admin${path}`, {
+    method, headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Admin-Token': token } : {}) }, body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => null)
+  if (!res.ok) throw Object.assign(new Error(data?.detail ?? res.statusText), { status: res.status })
+  return data as T
 }

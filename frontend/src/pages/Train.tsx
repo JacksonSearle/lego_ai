@@ -5,6 +5,7 @@ import { LiveCharts } from '../components/LiveCharts'
 import { Difficulty, difficultyTag } from '../components/Difficulty'
 import { HardwarePanel, bottleneck } from '../components/HardwarePanel'
 import { SizeAdvisor, useEstimate } from '../components/SizeAdvisor'
+import { Workers } from '../components/Workers'
 import { NumInput } from '../components/NumInput'
 import { ParamField } from '../components/ParamField'
 import { HP_FEATURE } from '../learn/curriculum'
@@ -37,6 +38,8 @@ export function Train() {
   // Training the same model on several datasets: which ones fit it, and which are ticked.
   const [compat, setCompat] = useState<{ id: string; ok: boolean }[] | null>(null)
   const [also, setAlso] = useState<string[]>([])
+  // Train on this computer ('') or on another one (a worker's id).
+  const [where, setWhere] = useState('')
   const archKey = JSON.stringify(draft.blocks)
   useEffect(() => { setCompat(null); setAlso([]) }, [archKey, draft.dataset])
   const [pane, setPane] = useState<Pane>(() => (sessionStorage.getItem('lego-ai/train-pane') as Pane) || 'hp')
@@ -98,7 +101,8 @@ export function Train() {
     try {
       const cfg = toConfig()
       // Make sure the chosen batch size fits before committing to a run.
-      const quick = await api.probeQuick(cfg)
+      const remote = !!where && access.has('share') && !(useOptuna && optuna && access.has('train.optuna')) && also.length === 0 && seeds <= 1
+      const quick = remote ? { requested_fits: true, device: '' } : await api.probeQuick(cfg)
       if (quick.requested_fits === false && override !== probeKey + t.batch_size) {
         toast(`Batch size ${t.batch_size} probably won't fit in memory on ${quick.device}. Testing alternatives: pick one, or press “Train anyway”.`, 'error')
         setOverride(probeKey + t.batch_size)
@@ -120,8 +124,9 @@ export function Train() {
         attachJob(job.id, 'seeds', cfg.name)
         toast(`Training ${seeds} copies with seeds ${cfg.training.seed} to ${Number(cfg.training.seed) + seeds - 1}`, 'ok')
       } else {
-        const { job, run } = await api.train(cfg)
+        const { job, run } = await api.train(cfg, undefined, remote ? where : undefined)
         attachJob(job.id, 'train', cfg.name, run.id, { built: !!draft.edited })
+        if (remote) { flag('worker'); toast('Sent to the other computer. Progress shows here as it trains.', 'ok') }
       }
     } catch (e) {
       toast((e as Error).message, 'error')
@@ -257,6 +262,7 @@ export function Train() {
 
           {pane === 'hardware' && <>
             {est && <div style={{ marginBottom: 14 }}><h4 style={{ marginBottom: 6 }}>Can this computer train this model?</h4><SizeAdvisor est={est} /></div>}
+            {access.has('share') && <div style={{ marginBottom: 14 }}><Workers value={where} onChange={setWhere} /></div>}
             <HardwarePanel device={String(effectiveTraining(t).device)} lastEpoch={lastEpoch} />
           </>}
         </div>
@@ -266,7 +272,7 @@ export function Train() {
             <button className="big danger" onClick={stop}>{session?.kind === 'train' ? '⏸ Pause' : '■ Stop'}</button>
           ) : (
             <button className="big primary" onClick={start} disabled={!valid || starting}>
-              {starting ? <><span className="spinner" /> Checking memory…</> : override === probeKey + t.batch_size ? '▶ Train anyway' : useOptuna && canOptuna ? `▶ Run Optuna (${optuna?.n_trials} trials)` : multiData ? `▶ Train on ${also.length + 1} datasets` : multiSeed ? `▶ Train × ${seeds} seeds` : '▶ Train'}
+              {starting ? <><span className="spinner" /> Checking memory…</> : override === probeKey + t.batch_size ? '▶ Train anyway' : useOptuna && canOptuna ? `▶ Run Optuna (${optuna?.n_trials} trials)` : multiData ? `▶ Train on ${also.length + 1} datasets` : multiSeed ? `▶ Train × ${seeds} seeds` : where && access.has('share') ? '☁ Train on the other computer' : '▶ Train'}
             </button>
           )}
           <div className="grow tiny muted" style={{ minWidth: 0 }}>

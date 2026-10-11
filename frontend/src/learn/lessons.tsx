@@ -545,6 +545,43 @@ python generate.py "ROMEO:" --length 400`}</pre>
     paper: { title: 'Benchmarking Neural Network Robustness to Common Corruptions and Perturbations', url: 'https://arxiv.org/abs/1903.12261', authors: 'D. Hendrycks, T. Dietterich', year: 2019 },
   },
   {
+    id: 'adv.shared', section: 'advanced', title: 'The shared leaderboard', summary: 'Compete on tracks with strict limits, on a board where every score is checked.', unlock: { feature: 'share' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
+    body: <>
+      <P>Your own leaderboard only has your models. A <b>shared leaderboard</b> is run by one person, the <b>host</b> (a teacher, a club, a friend), and everyone connected to it can enter. Go to Leaderboard → <b>🌍 Shared</b> and enter the address the host gave you.</P>
+      <P><b>Tracks.</b> A shared board is split into tracks, each with limits: a dataset, a maximum number of weights, epochs and training examples, and a time limit. Limits are what make a contest interesting. Without them the biggest computer wins. With them, the best idea does. “The best digit reader under 100,000 weights in three epochs” is a real design puzzle.</P>
+      <P><b>How an entry is checked.</b> When you submit, your computer sends only the <b>recipe</b>: the blocks and settings, not the weights and not your score. The host’s computer trains that recipe again from scratch and lists the score <i>it</i> measures. Three things follow:</P>
+      <ul>
+        <li>Nobody can type in a made-up number.</li>
+        <li>Everyone is measured on the same machine, so time limits are fair.</li>
+        <li>Because training here is reproducible, the host should get your score, to the last digit on a matching setup or within a few hundredths of a percent on a different one. A ✓ marks an exact match.</li>
+      </ul>
+      <P>This is how serious benchmarks work too: results count when someone else can run your code and get the same thing.</P>
+      <P><b>To enter:</b> train a model that obeys a track’s limits, open the run on your own leaderboard and use <b>Submit to the shared leaderboard</b>. The app tells you first if any limit is broken. Your entry waits in a queue until the host checks it. On the board, press <b>Open</b> on anyone’s entry to load its recipe into your Builder and learn from it.</P>
+      <Tip>Custom blocks are code that the host would have to run, so most tracks refuse them. Fused blocks count as custom: unfuse them before submitting.</Tip>
+      <P>Want to run one yourself? The project’s <code>docs/HOSTING.md</code> explains it. In short: start the app with <code>LEGO_HOST=1</code>.</P>
+    </>,
+    quiz: { q: 'Why does the host retrain every submitted model instead of accepting the submitted score?', options: ['To use up electricity', 'So every score on the board was produced the same way on the same machine, and nobody can invent one', 'Because scores cannot be sent over the internet', 'To make submissions slower'], answer: 1, explain: 'A result that someone else reproduced is one you can trust, and measuring everyone on one machine makes the limits fair.' },
+  },
+  {
+    id: 'adv.cloud', section: 'advanced', title: 'Training on a cloud GPU', summary: 'Send a run to a more powerful computer and get the results back.', unlock: { feature: 'share' }, action: { tab: 'train', label: 'Open Train' },
+    body: <>
+      <P>When the Hardware tab says a model is too big or too slow for this computer, you can train it somewhere else. Lego AI can send a run to another computer, called a <b>worker</b>, watch it train live, and copy the results and weights back to your leaderboard.</P>
+      <P>A worker is just another copy of Lego AI, started on a machine with a GPU and protected by an <b>access token</b> (a long secret, like a password, so that only you can use it). It can be a gaming desktop in the next room or a machine rented by the hour from a GPU cloud.</P>
+      <ol>
+        <li>On the GPU machine, start Lego AI with a token: <code>LEGO_TOKEN="a-long-secret" HOST=0.0.0.0 ./run.sh</code></li>
+        <li>Here, go to Train → <b>Hardware</b> → <b>Add another computer</b> and enter its address and the token.</li>
+        <li>Choose it under <b>Where to train</b> and press Train.</li>
+      </ol>
+      <P>The model, the settings and, if needed, your imported dataset are sent over. The charts on the Train page update as usual. The worker uses its own best device, so a run sent from a laptop trains on the worker’s GPU.</P>
+      <ul>
+        <li><b>Rented machines cost money while they are switched on</b>, whether or not anything is training. Shut them down when you finish. The app never starts, stops or pays for machines.</li>
+        <li><b>Keep the token secret.</b> Anyone with the address and the token can use the machine. The safest connection is an SSH tunnel: <code>docs/CLOUD_GPU.md</code> shows how.</li>
+        <li><b>GPU results are not exactly reproducible.</b> Expect tiny differences from a CPU run of the same config.</li>
+      </ul>
+      <Tip>Make it work small first. Train on a subset on your own computer until the model clearly learns, then send the full run to the GPU.</Tip>
+    </>,
+  },
+  {
     id: 'adv.autopilot', section: 'advanced', title: 'Autopilot: improving a model automatically', summary: 'Start from a model that works and let the computer keep trying small changes.', unlock: { feature: 'advanced.autopilot' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
     body: <>
       <P>Optuna searches a range of settings that you describe. The <b>autopilot</b> works the other way round: you hand it a model that already trains well, and it looks for something better nearby.</P>

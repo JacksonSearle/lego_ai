@@ -97,6 +97,10 @@ export interface Meta {
   categories: string[]
   search_space: Record<string, SearchSpec>
   custom_errors: Record<string, string>
+  version: string
+  /** True when this copy is hosting a shared leaderboard (started with LEGO_HOST=1). */
+  host_mode: boolean
+  host_name: string | null
 }
 
 export type Training = Record<string, unknown>
@@ -211,6 +215,8 @@ export interface RunRow {
   hub?: { repo: string; url: string; published_at?: number; imported_at?: number } | null
   /** Identifies the model design (same blocks and settings), whatever the dataset. */
   arch: string
+  /** Trained on another computer (a worker). */
+  remote?: { worker: string; device: string; gpu?: string | null } | null
 }
 
 /** A column of an uploaded table, as shown before importing. */
@@ -229,6 +235,20 @@ export interface DatasetPreview {
   vocab?: number
   hub?: { repo: string; config: string; configs: string[]; truncated: boolean }
 }
+/** A leaderboard with limits on a shared leaderboard server. */
+export interface Track {
+  id: string; name: string; dataset: string; description: string
+  max_params: number | null; max_epochs: number | null; max_train_examples: number | null; max_seconds: number | null; allow_custom_blocks: boolean
+}
+export interface GlobalEntry {
+  id: string; player: string; name: string; track: string; status: 'pending' | 'verifying' | 'verified' | 'rejected'; reason: string | null
+  submitted_at: number; params: number | null; epochs: number | null; train_examples: number | null; block_types: string[]
+  val_acc: number | null; test_acc: number | null; seconds: number | null; claimed_test_acc: number | null; match: 'exact' | 'close' | 'different' | null
+}
+export interface GlobalInfo { name: string; version: string; tracks: Track[]; queue: number; player: string; mine: Record<string, { id: string; track: string }> }
+export interface AppSettings { server_url: string; player: string; update_repo: string; feedback_email: string; workers: { id: string; name: string; url: string }[] }
+export interface Worker { id: string; name: string; url: string; ok: boolean; error?: string; device?: string; gpu?: string | null; gpu_gb?: number | null; cpu?: string; version?: string; same_version?: boolean }
+export interface UpdateInfo { current: string; latest: string | null; available: boolean; notes: string; url: string | null }
 export interface HubStatus { logged_in: boolean; user: string | null; error?: string }
 export interface HubModel { repo: string; downloads: number | null; likes: number | null; updated: string }
 
@@ -315,6 +335,7 @@ export interface RunDetail {
   combine?: CombineInfo | null
   scale?: ScaleTag | null
   hub?: RunRow['hub']
+  remote?: RunRow['remote']
   /** False for soups and ensembles: they have weights but no optimizer state to continue from. */
   resumable?: boolean
 }

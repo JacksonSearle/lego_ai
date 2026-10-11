@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import type { Feature } from './learn/curriculum'
 import { featureLevel } from './learn/engine'
 import { Guidebook, LessonModal } from './learn/Guidebook'
@@ -11,6 +11,8 @@ import { Explore } from './pages/Explore'
 import { Lab } from './pages/Lab'
 import { Leaderboard } from './pages/Leaderboard'
 import { Scaling } from './pages/Scaling'
+import { HostAdmin } from './pages/Shared'
+import { FeedbackButton, UpdateBanner } from './components/Feedback'
 import { Train } from './pages/Train'
 import { StoreProvider, useStore } from './store'
 
@@ -30,23 +32,24 @@ const TABS: { id: string; label: string; feature?: Feature }[] = [
 ]
 
 function Shell() {
-  const { tab, setTab, session, toasts, draft, setDraft, inspect, toast, offline } = useStore()
+  const { tab, setTab, session, toasts, draft, setDraft, inspect, toast, offline, meta } = useStore()
   const { access, progress, flag, update, setSpot, ready } = useLearn()
 
   // The Lab is the level 1 to 4 playground. After that it leaves the tab bar (it stays reachable from
   // the profile menu, and stays put while you are still on it so it never vanishes under you).
-  const visible = TABS.filter((t) => t.id !== 'lab' || tab === 'lab' || (!access.unlocked && access.level < 5))
+  const visible = [...TABS.filter((t) => t.id !== 'lab' || tab === 'lab' || (!access.unlocked && access.level < 5)), ...(meta?.host_mode ? [{ id: 'host', label: '🌍 Host' }] : [])]
   const allowed = (id: string) => {
-    const t = TABS.find((x) => x.id === id)
-    return !!t && visible.includes(t) && (!t.feature || access.has(t.feature))
+    const t = visible.find((x) => x.id === id) as (typeof TABS)[number] | undefined
+    return !!t && (!t.feature || access.has(t.feature))
   }
 
   // Keep the user on a page they can use.
   useEffect(() => {
     if (!ready || !progress.mode) return
+    if (tab === 'host' && !meta) return
     if (!allowed(tab)) setTab(access.has('builder') ? 'build' : 'lab')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, ready, progress.mode, access.level, access.unlocked])
+  }, [tab, ready, progress.mode, access.level, access.unlocked, meta])
 
   useEffect(() => {
     if (ready && progress.mode) flag(`visit:${tab}`)
@@ -74,6 +77,7 @@ function Shell() {
       explore: <Explore />,
       scaling: <Scaling />,
       datasets: <Datasets />,
+      host: <HostAdmin />,
       custom: <CustomBlocks />,
       guide: <Guidebook />,
     }[tab] ?? <Lab />
@@ -89,13 +93,13 @@ function Shell() {
         </div>
         <nav className="tabs">
           {visible.map((t) => {
-            const locked = !!t.feature && !access.has(t.feature)
+            const locked = 'feature' in t && !!t.feature && !access.has(t.feature)
             return (
               <button
                 key={t.id}
                 className={`tab ${tab === t.id ? 'active' : ''} ${locked ? 'locked' : ''}`}
                 onClick={() => !locked && setTab(t.id)}
-                title={locked ? `Unlocks at level ${featureLevel(t.feature!)}` : undefined}
+                title={locked && 'feature' in t ? `Unlocks at level ${featureLevel(t.feature!)}` : undefined}
               >
                 {locked && '🔒 '}{t.label}
                 {t.id === 'train' && session?.status === 'running' && <span className="dot" title="Training in progress" />}
@@ -104,8 +108,10 @@ function Shell() {
           })}
         </nav>
         <span className="spacer" />
+        <FeedbackButton />
         <ProfileBar />
       </header>
+      <UpdateBanner />
       {offline && (
         <div className="offline-banner">
           ⚠️ Can’t reach the Lego AI server, so shape checks and training are paused. Start it with <code>./run.sh</code> in the project folder: this page reconnects automatically.
@@ -128,7 +134,35 @@ function Shell() {
   )
 }
 
+/** Shown when this copy is protected by an access token (a worker or a leaderboard host) and the browser has not presented it. */
+function Locked() {
+  const [token, setToken] = useState('')
+  return (
+    <div className="modal-back" style={{ zIndex: 500 }}>
+      <div className="modal" style={{ width: 'min(480px, 100%)' }}>
+        <div className="modal-head"><h2>🔒 This copy of Lego AI is protected</h2></div>
+        <div className="modal-body col" style={{ gap: 10 }}>
+          <div className="small muted">It was started so that other computers can reach it, which means it needs its access token. Whoever started it has the token (it is printed when a leaderboard host starts, or was chosen as LEGO_TOKEN).</div>
+          <form className="row" onSubmit={(e) => { e.preventDefault(); location.href = `/?token=${encodeURIComponent(token.trim())}${location.hash}` }}>
+            <input className="grow" type="password" autoComplete="off" autoFocus placeholder="Access token" value={token} onChange={(e) => setToken(e.target.value)} />
+            <button className="primary" disabled={!token.trim()}>Unlock</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
+  const [locked, setLocked] = useState(false)
+  useEffect(() => {
+    const on = () => setLocked(true)
+    window.addEventListener('lego-locked', on)
+    // The token arrives in the address once; the server turns it into a cookie. Do not leave it in the address bar.
+    if (new URLSearchParams(location.search).has('token')) history.replaceState(null, '', location.pathname + location.hash)
+    return () => window.removeEventListener('lego-locked', on)
+  }, [])
+  if (locked) return <Locked />
   return (
     <LearnProvider>
       <StoreProvider>

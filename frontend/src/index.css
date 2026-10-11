@@ -570,3 +570,4 @@ table.confusion { border-collapse: collapse; font-size: 12px; }
 .clickable-cell { cursor: pointer; }
 .clickable-cell:hover { background: var(--panel-2); }
 .cell-selected { background: #1d2740 !important; }
+.chosen-card { border-color: var(--accent); }

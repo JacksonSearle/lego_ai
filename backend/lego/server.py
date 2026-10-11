@@ -5,19 +5,45 @@ Run with:  uv run uvicorn lego.server:app --port 8000
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import os
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import blocks  # noqa: F401  (registers built-ins)
-from . import autopilot, batchsize, combine, config as cfgmod, custom, datasets, export, hardware, hub, jobs, model as modelmod, predict, progress, runs, scaling, seeds, shifts, templates, tuner, userdata
+from . import autopilot, batchsize, combine, config as cfgmod, custom, datasets, export, hardware, host, hub, jobs, model as modelmod, predict, progress, remote, runs, scaling, seeds, settings, shifts, templates, tuner, update, userdata
 from .registry import CATEGORY_ORDER, REGISTRY
 from .train import train_run
 
 app = FastAPI(title="Lego AI")
+app.include_router(host.router)
+
+# When this copy is reachable from other computers (a cloud GPU worker), LEGO_TOKEN protects it:
+# every /api request must carry the token, as a header or as the cookie set by opening /?token=...
+ACCESS_TOKEN = settings.ACCESS_TOKEN
+if host.ENABLED:
+    print(f"\n  Leaderboard host “{host.NAME}” is on.\n  Your own access (the app and the Host tab):  http://localhost:{os.environ.get('PORT', '8000')}/?token={ACCESS_TOKEN}\n  Players only need this computer's address.\n", flush=True)
+
+
+@app.middleware("http")
+async def require_token(request: Request, call_next):
+    if ACCESS_TOKEN and request.url.path.startswith("/api"):
+        given = request.headers.get("authorization", "").removeprefix("Bearer ").strip() or request.cookies.get("lego_token", "")
+        if not hmac.compare_digest(given, ACCESS_TOKEN):
+            return JSONResponse({"detail": "This copy of Lego AI needs its access token."}, status_code=401)
+    response = await call_next(request)
+    if ACCESS_TOKEN and hmac.compare_digest(request.query_params.get("token", ""), ACCESS_TOKEN):
+        response.set_cookie("lego_token", ACCESS_TOKEN, httponly=True, samesite="lax", max_age=30 * 86400)
+    return response
+
+
 FRONTEND = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 custom.ensure_example()
@@ -42,7 +68,15 @@ def meta():
         "categories": CATEGORY_ORDER,
         "search_space": tuner.default_search_space(),
         "custom_errors": CUSTOM_LOAD_ERRORS,
+        "version": settings.version(),
+        "host_mode": host.ENABLED,
+        "host_name": host.NAME if host.ENABLED else None,
     }
+
+
+@app.get("/api/version")
+def version():
+    return {"version": settings.version()}
 
 
 @app.get("/api/blocks")
@@ -222,7 +256,13 @@ def train(body: dict = Body(...)):
     try:
         cfg = _prepare_config(body["config"])
         run = runs.create(cfg, reproduce_of=body.get("reproduce_of"))
-        job = _start_training(run["id"])
+        if body.get("worker"):
+            # Train on another computer (a cloud GPU worker) and bring the results back.
+            worker_id = str(body["worker"])
+            remote.find(worker_id)
+            job = jobs.start("train", lambda job: remote.run_remote(job, run["id"], worker_id), meta={"run_id": run["id"]})
+        else:
+            job = _start_training(run["id"])
     except (ValueError, KeyError) as e:
         _bad(e)
     return {"job": job.to_json(), "run": run}
@@ -319,6 +359,166 @@ def train_suite(body: dict = Body(...)):
         _bad(e)
     job = jobs.start("suite", lambda job: seeds.run_suite(job, cfg, ids), meta={"name": cfg["name"]})
     return {"job": job.to_json()}
+
+
+# ---------------------------------------------------------------------------
+# Settings, workers (training on another computer), updates
+# ---------------------------------------------------------------------------
+@app.get("/api/settings")
+def get_settings():
+    return settings.public()
+
+
+@app.put("/api/settings")
+def put_settings(body: dict = Body(...)):
+    changes = {}
+    if "server_url" in body:
+        url = str(body["server_url"] or "").strip().rstrip("/")
+        if url and not url.startswith(("http://", "https://")):
+            _bad(ValueError("The address must start with http:// or https://"))
+        changes["server_url"] = url
+    if "player" in body:
+        changes["player"] = " ".join(str(body["player"] or "").split())[:40]
+    settings.save(changes)
+    return settings.public()
+
+
+@app.get("/api/workers")
+def list_workers():
+    return [{**{k: w[k] for k in ("id", "name", "url")}, **remote.probe(w)} for w in settings.load()["workers"]]
+
+
+@app.post("/api/workers")
+def add_worker(body: dict = Body(...)):
+    try:
+        remote.add(str(body.get("name") or ""), str(body.get("url") or ""), str(body.get("token") or ""))
+    except remote.WorkerError as e:
+        _bad(e)
+    return list_workers()
+
+
+@app.delete("/api/workers/{worker_id}")
+def delete_worker(worker_id: str):
+    remote.remove(worker_id)
+    return list_workers()
+
+
+@app.post("/api/worker/dataset")
+def worker_dataset(body: dict = Body(...)):
+    """Receive a dataset from the computer that controls this worker (only when an access token is set)."""
+    if not ACCESS_TOKEN:
+        _bad(ValueError("This copy is not running as a worker (no access token is set)."), 403)
+    try:
+        return {"id": remote.receive_dataset(body.get("meta") or {}, str(body.get("data") or ""))}
+    except Exception as e:  # noqa: BLE001
+        _bad(ValueError(f"Could not store the dataset: {e}"))
+
+
+@app.get("/api/update")
+def check_update(force: bool = False):
+    return update.check(force)
+
+
+# ---------------------------------------------------------------------------
+# The shared leaderboard this copy submits to, and feedback
+# ---------------------------------------------------------------------------
+def _server(method: str, path: str, body=None, timeout: float = 20):
+    base = settings.load()["server_url"]
+    if not base:
+        _bad(ValueError("No shared leaderboard is set up yet. Enter its address first."))
+    data = None if body is None else json.dumps(runs.sanitize(body), default=str).encode()
+    req = urllib.request.Request(base + path, data=data, method=method, headers={"Content-Type": "application/json", "User-Agent": "lego-ai"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read()).get("detail")
+        except Exception:  # noqa: BLE001
+            detail = None
+        _bad(ValueError(detail or f"The leaderboard server answered with an error ({e.code})."), e.code if e.code in (404, 409, 413, 429) else 400)
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        _bad(ValueError(f"Could not reach the leaderboard at {base}: {getattr(e, 'reason', e)}"), 502)
+
+
+@app.get("/api/global/info")
+def global_info():
+    info = _server("GET", "/host/info", timeout=8)
+    mine = {rid: s for rid, s in settings.load()["submissions"].items() if s.get("server") == settings.load()["server_url"]}
+    return {**info, "player": settings.load()["player"], "mine": mine}
+
+
+@app.get("/api/global/board")
+def global_board(track: str):
+    return _server("GET", f"/host/board?track={track}")
+
+
+@app.post("/api/global/check")
+def global_check(body: dict = Body(...)):
+    try:
+        run = runs.get(str(body.get("run")))
+    except KeyError as e:
+        _bad(e, 404)
+    return _server("POST", "/host/check", {"track": body.get("track"), "config": run["config"]})
+
+
+@app.post("/api/global/submit")
+def global_submit(body: dict = Body(...)):
+    try:
+        run = runs.get(str(body.get("run")))
+    except KeyError as e:
+        _bad(e, 404)
+    if run["status"] != "completed":
+        _bad(ValueError("Only a finished run can be submitted."))
+    player = " ".join(str(body.get("player") or settings.load()["player"]).split())[:40]
+    settings.save({"player": player})
+    out = _server("POST", "/host/submit", {"player": player, "track": body.get("track"), "config": run["config"], "summary": run["summary"], "version": settings.version()})
+    subs = settings.load()["submissions"]
+    subs[run["id"]] = {"id": out["id"], "track": body.get("track"), "server": settings.load()["server_url"], "at": time.time()}
+    settings.save({"submissions": subs})
+    return out
+
+
+@app.get("/api/global/submissions/{sub_id}")
+def global_submission(sub_id: str):
+    return _server("GET", f"/host/submissions/{sub_id}")
+
+
+@app.post("/api/global/open")
+def global_open(body: dict = Body(...)):
+    """Fetch the recipe of an entry on the shared leaderboard."""
+    cfg = _server("GET", f"/host/submissions/{body.get('id')}/config")
+    code = cfg.get("custom_blocks") or {}
+    if code and not body.get("allow_code"):
+        return {"needs_confirm": True, "custom_blocks": {k: v.get("source", "") for k, v in code.items()}}
+    cfg = cfgmod.normalize(cfg)
+    notes = custom.ensure_from_config(cfg.get("custom_blocks"))
+    return {"config": cfg, "notes": notes}
+
+
+@app.post("/api/feedback")
+def send_feedback(body: dict = Body(...)):
+    """Keep a copy of the message here, and pass it on to the shared server when one is set."""
+    text = str(body.get("text") or "").strip()
+    if not text:
+        _bad(ValueError("Write a message first."))
+    s = settings.load()
+    entry = {
+        "text": text[:8000], "kind": str(body.get("kind") or "idea")[:20], "contact": str(body.get("contact") or "")[:120],
+        "player": s["player"], "version": settings.version(), "at": time.time(),
+        "context": {"tab": str(body.get("tab") or "")[:30], "platform": cfgmod.environment().get("platform"), "torch": cfgmod.environment().get("torch")} if body.get("include_context", True) else {},
+    }
+    path = settings.PATH.parent / "feedback.jsonl"
+    with open(path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    sent = False
+    if s["server_url"]:
+        try:
+            _server("POST", "/host/feedback", entry, timeout=10)
+            sent = True
+        except HTTPException:
+            sent = False
+    return {"sent": sent, "saved": True, "email": s["feedback_email"] or None}
 
 
 # ---------------------------------------------------------------------------
@@ -538,7 +738,7 @@ def list_runs(include_demo: bool = False):
             "updated_at": r["updated_at"], "dataset": c["dataset"]["id"], "summary": r["summary"], "error": r.get("error"),
             "study": r.get("study"), "reproduce_of": r.get("reproduce_of"), "group": r.get("group"),
             "combine": _brief(r.get("combine")), "scale": r.get("scale"), "variation": r.get("variation"),
-            "suite": r.get("suite"), "hub": r.get("hub"), "arch": _arch_key(c),
+            "suite": r.get("suite"), "hub": r.get("hub"), "arch": _arch_key(c), "remote": r.get("remote"),
             "init_from": c.get("init_from"),
             "training": c["training"], "n_blocks": len(c["architecture"]["blocks"]),
             "block_types": [b["type"] for b in c["architecture"]["blocks"]],

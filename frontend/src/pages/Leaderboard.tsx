@@ -7,6 +7,7 @@ import { TensorImage } from '../components/TensorImage'
 import { GuideButton } from '../learn/GuideButton'
 import { useLearn } from '../learn/LearnContext'
 import { useStore } from '../store'
+import { SharedBoard, SubmitRun } from './Shared'
 import type { Combined, DatasetInfo, HubModel, HubStatus, RunDetail, RunRow, ShiftInfo, ShiftScores } from '../types'
 import { fmtAgo, fmtDur, fmtLoss, fmtNum, fmtPct, MEDALS } from '../util'
 
@@ -31,10 +32,11 @@ export function Leaderboard() {
   const canCombine = access.has('advanced.combine')
   const [picked, setPicked] = useState<string[]>([])
   const [combining, setCombining] = useState(false)
-  const [view, setView] = useState<'runs' | 'models'>(() => (localStorage.getItem('lego-ai/lb-view') === 'models' ? 'models' : 'runs'))
+  const [view, setView] = useState<'runs' | 'models' | 'shared'>(() => ((localStorage.getItem('lego-ai/lb-view') as 'runs' | 'models' | 'shared') || 'runs'))
   useEffect(() => localStorage.setItem('lego-ai/lb-view', view), [view])
   const [hubOpen, setHubOpen] = useState(false)
   const byModel = view === 'models' && access.has('datasets.custom')
+  const shared = view === 'shared' && access.has('share')
   const [rows, setRows] = useState<RunRow[]>([])
   // Remember the dataset tab and sort order between visits.
   const [ds, setDs] = useState<string>(() => localStorage.getItem('lego-ai/lb-dataset') ?? 'all')
@@ -102,10 +104,11 @@ export function Leaderboard() {
           <button className={ds === 'all' ? 'on' : ''} onClick={() => setDs('all')}>All</button>
           {dsWithRuns.map((d) => <button key={d.id} className={ds === d.id ? 'on' : ''} onClick={() => setDs(d.id)}>{d.name}</button>)}
         </div>
-        {access.has('datasets.custom') && (
-          <div className="seg" title="By model: one row per model design, with its score on every dataset it was trained on and the average">
-            <button className={!byModel ? 'on' : ''} onClick={() => setView('runs')}>Runs</button>
-            <button className={byModel ? 'on' : ''} onClick={() => setView('models')}>By model</button>
+        {(access.has('datasets.custom') || access.has('share')) && (
+          <div className="seg">
+            <button className={!byModel && !shared ? 'on' : ''} onClick={() => setView('runs')}>Runs</button>
+            {access.has('datasets.custom') && <button className={byModel ? 'on' : ''} title="One row per model design, with its score on every dataset it was trained on and the average" onClick={() => setView('models')}>By model</button>}
+            {access.has('share') && <button className={shared ? 'on' : ''} title="A leaderboard shared with other people, where every entry is checked by the host" onClick={() => { setView('shared'); setSelected(null) }}>🌍 Shared</button>}
           </div>
         )}
         <span className="spacer" />
@@ -122,9 +125,9 @@ export function Leaderboard() {
         <label className="row small muted"><input type="checkbox" checked={showFailed} onChange={(e) => setShowFailed(e.target.checked)} /> failed/pruned</label>
       </div>
 
-      <div className={`lb-layout ${selected ? 'with-detail' : ''}`}>
+      <div className={`lb-layout ${selected && !shared ? 'with-detail' : ''}`}>
         <div className="panel lb-table" data-tour="leaderboard">
-          {byModel ? (
+          {shared ? <SharedBoard /> : byModel ? (
             <ModelTable rows={rows.filter((r) => !q || r.name.toLowerCase().includes(q.toLowerCase()))} datasets={datasets} dsFilter={ds} selected={selected} onSelect={(id) => setSelected(selected === id ? null : id)} />
           ) : filtered.length === 0 ? (
             <div className="empty" style={{ margin: 20 }}>No runs yet. Build a model and train it, and it will show up here.</div>
@@ -166,6 +169,7 @@ export function Leaderboard() {
                         {r.combine && <span className="pill blue" title="Made by combining trained models">{COMBINE_ICON[r.combine.kind]} {combineLabel(r.combine)}</span>}
                         {r.scale && <span className="pill" title="One point of a scaling study (see the Scaling tab)">📈 {r.scale.axis === 'width' ? `${r.scale.factor}× width` : `${(r.scale.factor * 100).toFixed(0)}% data`}</span>}
                         {r.suite && <span className="pill" title={`Trained on ${r.suite.n} datasets in one go. Switch to “By model” to compare them.`}>🎒 {r.suite.index + 1} of {r.suite.n}</span>}
+                        {r.remote && <span className="pill" title={`Trained on “${r.remote.worker}”${r.remote.gpu ? ` (${r.remote.gpu})` : ''}`}>☁ {r.remote.worker}</span>}
                         {r.hub && <span className="pill blue" title={r.hub.repo}>🤗 {r.hub.imported_at ? 'imported' : 'published'}</span>}
                         {r.init_from && <span className="pill" title={`Started from the trained weights of “${r.init_from.name ?? r.init_from.run_id}”`}>fine-tuned</span>}
                         {r.group && (grouped(r)
@@ -197,7 +201,7 @@ export function Leaderboard() {
             </table>
           )}
         </div>
-        {selected && <RunDetailPanel id={selected} onClose={() => setSelected(null)} onChanged={load} onMade={(id) => { load(); setSelected(id) }} />}
+        {selected && !shared && <RunDetailPanel id={selected} onClose={() => setSelected(null)} onChanged={load} onMade={(id) => { load(); setSelected(id) }} />}
       </div>
       {hubOpen && <HubModal onClose={() => setHubOpen(false)} onImported={(id) => { setHubOpen(false); setView('runs'); load(); setSelected(id) }} />}
       {combining && (
@@ -683,6 +687,7 @@ function RunDetailPanel({ id, onClose, onChanged, onMade }: { id: string; onClos
           </div>
         )}
         {run.hub?.imported_at && <div className="small muted">Imported from <a href={run.hub.url} target="_blank" rel="noreferrer">{run.hub.repo} ↗</a>. Its scores are the ones its author measured.</div>}
+        {access.has('share') && run.status === 'completed' && !run.combine && <SubmitRun key={`s${run.id}`} run={run} />}
         {access.has('hub') && run.has_checkpoint && run.status === 'completed' && run.combine?.kind !== 'ensemble' && <Publish key={run.id} run={run} onChanged={onChanged} />}
         <Robustness run={run} onMeasured={(sh) => { setRun((r) => (r ? { ...r, summary: { ...r.summary, shift_acc: sh.acc, shifts: sh } } : r)); onChanged() }} />
         {run.has_checkpoint && run.status !== 'running' && run.combine?.kind !== 'ensemble' && <AdvancedActions run={run} onMade={onMade} />}
