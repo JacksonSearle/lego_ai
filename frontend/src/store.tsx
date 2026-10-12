@@ -4,7 +4,7 @@ import { BEGINNER_TRAINING, HP_FEATURE } from './learn/curriculum'
 import type { TrainInfo } from './learn/engine'
 import { useLearn } from './learn/LearnContext'
 import type {
-  BlockInst, BlockSpec, Combined, DatasetInfo, EpochPoint, InspectResult, JobEvent, Meta, RunConfig, Stat, StepPoint, Summary, Training,
+  BlockInst, BlockSpec, Combined, DatasetInfo, EpochPoint, LabPipeline, InspectResult, JobEvent, Meta, RunConfig, Stat, StepPoint, Summary, Training,
 } from './types'
 
 export interface Draft {
@@ -51,7 +51,7 @@ export interface SeedRow { index: number; seed: number; label?: string; error?: 
 export interface Session {
   jobId: string
   /** autopilot behaves like tune (rounds = trials); cook like seeds (variations = seeds). */
-  kind: 'train' | 'tune' | 'seeds' | 'autopilot' | 'cook' | 'scale' | 'suite'
+  kind: 'train' | 'tune' | 'seeds' | 'autopilot' | 'cook' | 'scale' | 'suite' | 'lab'
   status: string
   runId: string | null
   name: string
@@ -67,6 +67,8 @@ export interface Session {
   epochPts: EpochPoint[]
   summary: Summary | null
   error: string | null
+  /** Frontier Lab: the pipeline this job is running, updated as stages finish. */
+  pipeline: LabPipeline | null
   /** Soups and ensembles made by this job. */
   combined: Combined[]
   /** Scaling studies: which study, and the sizes finished so far. */
@@ -136,7 +138,7 @@ function loadDraft(): Draft | null {
 function emptySession(jobId: string, kind: Session['kind'], name: string, runId: string | null): Session {
   return {
     jobId, kind, name, runId, status: 'running', message: 'Starting…', params: null, epochs: null, totalSteps: null, trainExamples: null, baseStep: 0, device: null,
-    steps: [], epochPts: [], summary: null, error: null, trials: [], currentTrial: null, best: null, seedRuns: [], seedTotal: null, seedStats: null, combined: [], scale: null, points: [], startedAt: Date.now(),
+    steps: [], epochPts: [], summary: null, error: null, trials: [], currentTrial: null, best: null, seedRuns: [], seedTotal: null, seedStats: null, combined: [], scale: null, points: [], pipeline: null, startedAt: Date.now(),
   }
 }
 
@@ -181,6 +183,16 @@ function reduce(s: Session, e: JobEvent): Session {
       }
     case 'seed_end':
       return { ...s, seedRuns: [...s.seedRuns, e as unknown as SeedRow] }
+    case 'pipeline_start':
+    case 'pipeline_end':
+      return { ...s, pipeline: e.pipeline as LabPipeline }
+    case 'stage_start':
+      return {
+        ...s, runId: e.run_id as string, steps: [], epochPts: [], currentTrial: (e.index as number) + 1, seedTotal: e.n as number, message: `Stage ${(e.index as number) + 1} of ${e.n}`,
+        pipeline: s.pipeline && { ...s.pipeline, stages: s.pipeline.stages.map((st, i) => (i === e.index ? { ...st, status: 'running', run_id: e.run_id as string } : st)) },
+      }
+    case 'stage_end':
+      return { ...s, pipeline: s.pipeline && { ...s.pipeline, stages: s.pipeline.stages.map((st, i) => (i === e.index ? { ...st, status: 'done', bench: e.bench as LabPipeline['stages'][number]['bench'] } : st)) } }
     case 'combined':
       return { ...s, combined: [...s.combined, e as unknown as Combined] }
     case 'scale_start':
@@ -314,7 +326,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Re-attach to a training/tuning job that is still running (e.g. after a page reload).
   useEffect(() => {
     api.jobs().then((jobs) => {
-      const j = jobs.find((x) => ['train', 'tune', 'seeds', 'autopilot', 'cook', 'scale', 'suite'].includes(x.kind))
+      const j = jobs.find((x) => ['train', 'tune', 'seeds', 'autopilot', 'cook', 'scale', 'suite', 'lab'].includes(x.kind))
       if (j) attachJob(j.id, j.kind as Session['kind'], String(j.meta.name ?? 'Run'), (j.meta.run_id as string) ?? null)
     })
   }, [attachJob])

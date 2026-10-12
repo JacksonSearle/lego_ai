@@ -1,15 +1,23 @@
 import type {
-  AppSettings, DatasetPreview, GlobalEntry, GlobalInfo, HubModel, HubStatus, Predictions, UpdateInfo, Worker, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, ScalePlanRow, ShiftInfo, ShiftScores, Template,
+  LabInfo, LabPipeline, AppSettings, DatasetPreview, GlobalEntry, GlobalInfo, HubModel, HubStatus, Predictions, UpdateInfo, Worker, Samples, Evaluation, InputPrediction, Generation, BlockInst, BlockSpec, DatasetInfo, Estimate, Hardware, InspectResult, ProfileInfo, Job, JobEvent, Meta, ProbeResult, RunConfig, RunDetail, RunRow, ScalePlanRow, ShiftInfo, ShiftScores, Template,
 } from './types'
 
 async function req<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
+    cache: 'no-store', // never reuse an old answer: the data changes, and so does the server
+
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const text = await res.text()
-  const data = text ? JSON.parse(text) : null
+  let data = null
+  try {
+    data = text ? JSON.parse(text) : null
+  } catch {
+    // Not JSON: the server is older than this page and does not have this feature yet.
+    throw new Error('The Lego AI server is older than this page. Stop it and start it again (./run.sh), then reload.')
+  }
   if (res.status === 401 && url.startsWith('/api/')) window.dispatchEvent(new Event('lego-locked'))
   if (!res.ok) {
     const msg = data?.detail ?? data?.error ?? res.statusText
@@ -68,6 +76,10 @@ export const api = {
   hubImport: (repo: string, allow_code = false) =>
     req<{ run_id?: string; name?: string; needs_confirm?: boolean; custom_blocks?: Record<string, string> }>('POST', '/api/hub/import', { repo, allow_code }),
   publish: (runId: string, name: string, isPrivate: boolean) => req<{ repo: string; url: string; files: string[] }>('POST', `/api/runs/${runId}/publish`, { name, private: isPrivate }),
+  labInfo: () => req<LabInfo>('GET', '/api/lab/info'),
+  labPipelines: () => req<LabPipeline[]>('GET', '/api/lab/pipelines'),
+  labStart: (config: RunConfig, options: Record<string, unknown>) => req<{ job: Job }>('POST', '/api/lab/start', { config, options }),
+  labDelete: (id: string) => req('DELETE', `/api/lab/pipelines/${id}`),
   settings: () => req<AppSettings>('GET', '/api/settings'),
   saveSettings: (s: Partial<Pick<AppSettings, 'server_url' | 'player'>>) => req<AppSettings>('PUT', '/api/settings', s),
   workers: () => req<Worker[]>('GET', '/api/workers'),

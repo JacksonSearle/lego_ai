@@ -169,6 +169,7 @@ export function Leaderboard() {
                         {r.combine && <span className="pill blue" title="Made by combining trained models">{COMBINE_ICON[r.combine.kind]} {combineLabel(r.combine)}</span>}
                         {r.scale && <span className="pill" title="One point of a scaling study (see the Scaling tab)">📈 {r.scale.axis === 'width' ? `${r.scale.factor}× width` : `${(r.scale.factor * 100).toFixed(0)}% data`}</span>}
                         {r.suite && <span className="pill" title={`Trained on ${r.suite.n} datasets in one go. Switch to “By model” to compare them.`}>🎒 {r.suite.index + 1} of {r.suite.n}</span>}
+                        {r.pipeline && <span className="pill blue" title={`Stage ${r.pipeline.index + 1} of a Frontier Lab pipeline`}>🏭 {{ pretrain: 'pretrained', rl: 'after RL', safety: 'safety-tuned' }[r.pipeline.stage] ?? r.pipeline.stage}</span>}
                         {r.remote && <span className="pill" title={`Trained on “${r.remote.worker}”${r.remote.gpu ? ` (${r.remote.gpu})` : ''}`}>☁ {r.remote.worker}</span>}
                         {r.hub && <span className="pill blue" title={r.hub.repo}>🤗 {r.hub.imported_at ? 'imported' : 'published'}</span>}
                         {r.init_from && <span className="pill" title={`Started from the trained weights of “${r.init_from.name ?? r.init_from.run_id}”`}>fine-tuned</span>}

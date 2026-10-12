@@ -35,6 +35,7 @@ export type Feature =
   | 'datasets.custom' // the Datasets tab, training on several datasets, the model view of the leaderboard
   | 'hub' // Hugging Face: import and publish
   | 'share' // the shared leaderboard and training on other computers
+  | 'frontier' // the Frontier Lab pipeline
 
 export interface Stats {
   runs: number
@@ -123,6 +124,7 @@ export const LEVELS: Level[] = [
   { level: 16, xp: 9100, title: 'Curator', unlocks: ['datasets.custom'], news: ['The Datasets tab: import your own tables, text, images or a Hugging Face dataset.', 'Train one model on several datasets at once.', 'Leaderboard by model: averages across datasets.'] },
   { level: 17, xp: 10300, title: 'Publisher', unlocks: ['hub'], news: ['Hugging Face: publish your models to the world, and import other people’s.'] },
   { level: 18, xp: 11600, title: 'Legend', unlocks: ['share'], news: ['The shared leaderboard: submit your best models to tracks with strict limits and see how they rank.', 'Train on another computer, such as a rented cloud GPU.'] },
+  { level: 19, xp: 13000, title: 'Lab Director', unlocks: ['frontier'], news: ['The Frontier Lab: take a model through the stages a real AI lab uses. Pretrain it, improve it with reinforcement learning, teach it to refuse, and benchmark it after every step.'] },
 ]
 
 export const MAX_LEVEL = LEVELS[LEVELS.length - 1].level
@@ -208,6 +210,7 @@ export const AVATARS: { icon: string; level: number; name: string }[] = [
   { icon: '🚀', level: 16, name: 'Rocket' },
   { icon: '🐉', level: 17, name: 'Dragon' },
   { icon: '👑', level: 18, name: 'Crown' },
+  { icon: '🏭', level: 19, name: 'Lab' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -371,6 +374,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'a.submit', icon: '🌍', title: 'On the Board', desc: 'Submit a model to the shared leaderboard.', xp: 150, done: f('submit') },
   { id: 'a.worker', icon: '☁️', title: 'Head in the Cloud', desc: 'Train a model on another computer.', xp: 150, done: f('worker') },
   { id: 'a.feedback', icon: '💬', title: 'Playtester', desc: 'Send feedback about the app.', xp: 50, done: f('feedback') },
+  { id: 'a.lab', icon: '🏭', title: 'Lab Director', desc: 'Take a model through the whole Frontier Lab pipeline.', xp: 250, done: f('lab') },
   { id: 'a.regular', icon: '📋', title: 'Regular', desc: 'Complete 10 training runs.', xp: 75, done: (s) => s.runs >= 10 },
 ]
 

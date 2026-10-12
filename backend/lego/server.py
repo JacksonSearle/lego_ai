@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from . import blocks  # noqa: F401  (registers built-ins)
-from . import autopilot, batchsize, combine, config as cfgmod, custom, datasets, export, hardware, host, hub, jobs, model as modelmod, predict, progress, remote, runs, scaling, seeds, settings, shifts, templates, tuner, update, userdata
+from . import autopilot, batchsize, combine, config as cfgmod, custom, datasets, export, hardware, host, hub, lab, jobs, model as modelmod, predict, progress, remote, runs, scaling, seeds, settings, shifts, templates, tuner, update, userdata
 from .registry import CATEGORY_ORDER, REGISTRY
 from .train import train_run
 
@@ -39,6 +39,13 @@ async def require_token(request: Request, call_next):
         if not hmac.compare_digest(given, ACCESS_TOKEN):
             return JSONResponse({"detail": "This copy of Lego AI needs its access token."}, status_code=401)
     response = await call_next(request)
+    # Data must never be served from the browser's cache, and the page itself must be re-checked
+    # on every load so that an update is picked up. (Files under /assets have unique names.)
+    path = request.url.path
+    if path.startswith(("/api", "/host")):
+        response.headers["Cache-Control"] = "no-store"
+    elif not path.startswith("/assets"):
+        response.headers["Cache-Control"] = "no-cache"
     if ACCESS_TOKEN and hmac.compare_digest(request.query_params.get("token", ""), ACCESS_TOKEN):
         response.set_cookie("lego_token", ACCESS_TOKEN, httponly=True, samesite="lax", max_age=30 * 86400)
     return response
@@ -359,6 +366,42 @@ def train_suite(body: dict = Body(...)):
         _bad(e)
     job = jobs.start("suite", lambda job: seeds.run_suite(job, cfg, ids), meta={"name": cfg["name"]})
     return {"job": job.to_json()}
+
+
+# ---------------------------------------------------------------------------
+# Frontier Lab: pretrain → reinforcement learning → safety fine-tune → benchmarks
+# ---------------------------------------------------------------------------
+@app.get("/api/lab/info")
+def lab_info():
+    return lab.info()
+
+
+@app.get("/api/lab/pipelines")
+def lab_pipelines():
+    return lab.pipelines()
+
+
+@app.post("/api/lab/start")
+def lab_start(body: dict = Body(...)):
+    try:
+        raw = dict(body["config"])
+        raw["dataset"] = {"id": "lab_world", "train_subset": None, "seq_len": (raw.get("dataset") or {}).get("seq_len") if (raw.get("dataset") or {}).get("id") == "lab_world" else None}
+        cfg = _prepare_config(raw)
+        if body.get("options", {}).get("start_from"):
+            runs.get(str(body["options"]["start_from"]))
+    except (ValueError, KeyError) as e:
+        _bad(e)
+    job = jobs.start("lab", lambda job: lab.run_pipeline(job, cfg, body.get("options") or {}), meta={"name": cfg["name"]})
+    return {"job": job.to_json()}
+
+
+@app.delete("/api/lab/pipelines/{pipeline_id}")
+def lab_delete(pipeline_id: str):
+    try:
+        lab.delete(pipeline_id)
+    except ValueError as e:
+        _bad(e)
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -738,7 +781,7 @@ def list_runs(include_demo: bool = False):
             "updated_at": r["updated_at"], "dataset": c["dataset"]["id"], "summary": r["summary"], "error": r.get("error"),
             "study": r.get("study"), "reproduce_of": r.get("reproduce_of"), "group": r.get("group"),
             "combine": _brief(r.get("combine")), "scale": r.get("scale"), "variation": r.get("variation"),
-            "suite": r.get("suite"), "hub": r.get("hub"), "arch": _arch_key(c), "remote": r.get("remote"),
+            "suite": r.get("suite"), "hub": r.get("hub"), "arch": _arch_key(c), "remote": r.get("remote"), "pipeline": r.get("pipeline"),
             "init_from": c.get("init_from"),
             "training": c["training"], "n_blocks": len(c["architecture"]["blocks"]),
             "block_types": [b["type"] for b in c["architecture"]["blocks"]],
@@ -945,6 +988,10 @@ if FRONTEND.exists():
 
     @app.get("/{path:path}")
     def spa(path: str):
+        # An unknown API address is an error, not a page (an older server would otherwise answer
+        # a newer page's requests with HTML).
+        if path.startswith(("api/", "host/")):
+            raise HTTPException(404, detail="This server does not know that address. It may be older than the page: restart it.")
         f = FRONTEND / path
         if path and f.is_file():
             return FileResponse(f)

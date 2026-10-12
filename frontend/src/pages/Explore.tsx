@@ -118,7 +118,7 @@ function Scatter({ examples, size = 320 }: { examples: { vector?: number[]; labe
 function DataBrowser() {
   const { datasets, draft } = useStore()
   const { access, flag } = useLearn()
-  const allowed = datasets.filter((d) => !access.datasets || access.datasets.has(d.id) || d.custom)
+  const allowed = datasets.filter((d) => !access.datasets || access.datasets.has(d.id) || d.custom || (d.id.startsWith('lab_') && access.has('frontier')))
   const [dsId, setDsId] = useState(() => sessionStorage.getItem('lego-ai/explore-ds') || draft.dataset)
   const ds = allowed.find((d) => d.id === dsId) ?? allowed[0]
   const [split, setSplit] = useState('train')

@@ -115,6 +115,18 @@ DATASETS: dict[str, DatasetInfo] = {
         difficulty=3, targets={"baseline": 0.30, "good": 0.50, "great": 0.60},
         difficulty_note="Hard. Predicting the next character is never certain, so 55 to 60% is excellent. Needs an LSTM or transformer and many minutes of training; text quality keeps improving long after accuracy flattens.",
     ),
+    "lab_world": DatasetInfo(
+        "lab_world", "Lab World", "The Frontier Lab's toy internet: stories, facts, sums (some wrong), puzzles and leaked secrets about an invented world. Pretrain a foundation model on it.",
+        "lm", "tokens", [64], 47, vocab_size=47, seq_len=64, source="generated (lego/labworld.py)", seq_len_range=[48, 128], tokenizer="char",
+        difficulty=2, targets={"baseline": 0.30, "good": 0.62, "great": 0.70},
+        difficulty_note="Medium. A small transformer learns the world's facts in a few minutes. Next-character accuracy tops out near 70% because questions cannot be predicted, only answers.",
+    ),
+    "lab_safety": DatasetInfo(
+        "lab_safety", "Lab Safety Set", "The Frontier Lab's safety fine-tuning data: refusals for requests it must not fulfil, mixed with ordinary questions. Used after pretraining, not from scratch.",
+        "lm", "tokens", [64], 47, vocab_size=47, seq_len=64, source="generated (lego/labworld.py)", seq_len_range=[48, 128], tokenizer="char",
+        difficulty=2, targets=None,
+        difficulty_note="Meant for fine-tuning a model pretrained on Lab World. The Frontier Lab tab does this for you.",
+    ),
     "spirals": DatasetInfo(
         "spirals", "Spirals (2D)", "Three interleaved 2D spirals. Tiny and instant; linear models fail, MLPs succeed.",
         "classification", "vector", [2], 3, class_names=["A", "B", "C"], source="synthetic", train_size=2700, test_size=1000,
@@ -334,7 +346,18 @@ def _spirals():
     return {"train_x": x[:3000], "train_y": y[:3000], "test_x": x[3000:4000], "test_y": y[3000:4000]}
 
 
+def _lab(which):
+    def load():
+        from . import labworld
+
+        return labworld.load_world() if which == "world" else labworld.load_safety()
+
+    return load
+
+
 LOADERS = {
+    "lab_world": _lab("world"),
+    "lab_safety": _lab("safety"),
     "mnist": _torchvision("MNIST"),
     "fashion_mnist": _torchvision("FashionMNIST"),
     "cifar10": _torchvision("CIFAR10"),

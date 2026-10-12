@@ -342,7 +342,7 @@ export function Builder() {
           {access.has('datasets') ? (
             <select value={draft.dataset} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value, seq_len: null })); flag('datasetChanged') }} title={dataset?.difficulty_note ?? 'Dataset'} data-tour="dataset">
               {datasets.map((d) => {
-                const ok = !access.datasets || access.datasets.has(d.id) || !!d.custom
+                const ok = !access.datasets || access.datasets.has(d.id) || !!d.custom || (d.id.startsWith('lab_') && access.has('frontier'))
                 return <option key={d.id} value={d.id} disabled={!ok}>{ok ? `${d.name} · ${difficultyTag(d).toLowerCase()}` : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
               })}
             </select>

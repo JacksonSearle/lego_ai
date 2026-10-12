@@ -17,3 +17,4 @@ backend/data/settings.json
 backend/data/feedback.jsonl
 backend/data/host/
 dist-release/
+backend/data/pipelines/

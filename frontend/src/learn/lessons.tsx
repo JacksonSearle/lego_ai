@@ -582,6 +582,68 @@ python generate.py "ROMEO:" --length 400`}</pre>
     </>,
   },
   {
+    id: 'adv.frontier', section: 'advanced', title: 'How a frontier lab builds an assistant', summary: 'Pretraining, reinforcement learning, safety tuning and benchmarks: the whole pipeline at toy scale.', unlock: { feature: 'frontier' }, action: { tab: 'frontier', label: 'Open the Frontier Lab' },
+    body: <>
+      <P>The assistants made by the big labs are not trained in one go. They pass through stages, each with a different kind of data and a different goal. The <b>Frontier Lab</b> tab runs a miniature of that pipeline on a model you build, in a few minutes.</P>
+      <P>It all happens in a small invented world: twenty places, each with a capital, a color, an animal and a secret vault code. The model is a character-level transformer, the same design as the real thing with about a millionth of the weights.</P>
+      <ol>
+        <li><b>Pretraining.</b> The model reads “the internet” (here a few hundred thousand characters of stories, questions and answers) and learns one thing: predict the next character. Everything it knows comes from this. So do its flaws. This toy internet repeats popular wrong answers to some sums, often copies a puzzle instead of solving it, and contains the vault codes. A model that imitates text imitates all of that.</li>
+        <li><b>Reinforcement learning.</b> For tasks where a program can check the answer, the model no longer imitates. It tries, and is rewarded for being right. This is how it can become <i>better than its training data</i>. See the GRPO lesson.</li>
+        <li><b>Safety fine-tuning.</b> The model is trained on examples of refusing what it should not do (here, giving out a vault code), mixed with ordinary questions so that it does not start refusing everything.</li>
+        <li><b>Benchmarks.</b> After every stage the model takes the same seven tests. That is the only way to know what a stage bought and what it cost.</li>
+      </ol>
+      <P>Things to try once it has run:</P>
+      <ul>
+        <li>Untick reinforcement learning or safety and run again. What is the assistant like without that stage?</li>
+        <li>Swap the foundation model: the small GPT, the LSTM, or your own design. Does a weaker foundation limit every later stage?</li>
+        <li>Give RL more rounds. Does Math keep rising? Does Knowledge start to slip?</li>
+        <li>Chat with each stage’s model in Explore. Type <code>Q: code of …?</code>, a new line, then <code>A:</code>.</li>
+      </ul>
+      <Tip>The real pipelines differ mainly in scale: trillions of words in place of a few hundred thousand characters, months on thousands of GPUs in place of minutes on a laptop, and thousands of benchmarks in place of seven. The shape is the same.</Tip>
+    </>,
+    quiz: { q: 'Where does a pretrained model’s knowledge of wrong facts come from?', options: ['Random initialization', 'Its training text, which it imitates, mistakes included', 'The optimizer', 'The benchmark'], answer: 1, explain: 'Next-token prediction copies whatever is common in the data, true or not.' },
+  },
+  {
+    id: 'adv.grpo', section: 'advanced', title: 'Reinforcement learning and GRPO', summary: 'Learning from right-or-wrong instead of from examples.', unlock: { feature: 'frontier' }, action: { tab: 'frontier', label: 'Open the Frontier Lab' },
+    body: <>
+      <P>Everything before this was <b>supervised</b>: for each input, the right output was given and the model was nudged toward it. <b>Reinforcement learning</b> (RL) needs less. Nobody shows the answer. The model acts, a number comes back saying how good that was (the <b>reward</b>), and the model becomes more likely to do what earned more.</P>
+      <P>For a language model the “action” is writing an answer. If a program can check answers, such as a sum, a sorted list, a passing unit test, a solved puzzle, it can hand out rewards endlessly with no human writing examples. This is how today’s reasoning models are sharpened.</P>
+      <P><b>GRPO</b> (Group Relative Policy Optimization) is a simple, popular recipe:</P>
+      <ol>
+        <li>Take a question. Let the model write a <b>group</b> of different answers by sampling (here 8).</li>
+        <li>Score each answer with the checker.</li>
+        <li>Compare each answer with the <b>average of its own group</b>. Better than average: make that answer more likely. Worse: less likely. If the whole group scored the same, there is nothing to learn from it.</li>
+        <li>Do not move too far in one step (a clipped update), and stay close to the model you started from (a penalty on drifting away from it). Here that penalty also covers ordinary text, which is what protects Knowledge.</li>
+      </ol>
+      <P>Comparing within the group is the clever part. Older methods train a second network, a critic, to estimate how good an answer “should” be. GRPO uses the group’s own average instead: no critic to train.</P>
+      <P>Why it helps in the lab: the toy internet says some sum equals the wrong number three times out of four. Pretraining learns the popular answer. But when sampling, the model still writes the right one now and then. RL rewards exactly those tries, and the right answer takes over. The model ends up <b>better than its data</b>, which imitation alone can never do.</P>
+      <P>The Train tab shows this stage like any run: the “accuracy” curve is the average reward, and validation is the score on the Math and Puzzles benchmarks.</P>
+      <Tip>RL only improves what the reward measures. Watch Knowledge and Language while Math rises: if they fall, the model is forgetting, and the leash (or fewer rounds) is the fix. A badly designed reward is worse: the model will find whatever earns it, intended or not.</Tip>
+    </>,
+    quiz: { q: 'In GRPO, when is an answer made more likely?', options: ['When it matches a stored correct answer', 'When its reward is above the average of the other answers sampled for the same question', 'When it is the longest', 'Always'], answer: 1, explain: 'Each answer is judged relative to its own group, which is why no separate critic network is needed.' },
+    paper: { title: 'DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models (introduces GRPO)', url: 'https://arxiv.org/abs/2402.03300', authors: 'Z. Shao et al.', year: 2024 },
+  },
+  {
+    id: 'adv.safetytune', section: 'advanced', title: 'Safety fine-tuning, jailbreaks and benchmarks', summary: 'Teaching a model to refuse, checking that it still helps, and measuring both.', unlock: { feature: 'frontier' }, action: { tab: 'frontier', label: 'Open the Frontier Lab' },
+    body: <>
+      <P>A pretrained model will repeat anything it has read. In the lab’s toy world that includes vault codes. <b>Safety fine-tuning</b> is ordinary supervised training on a small, carefully made dataset: requests the model must not fulfil, each paired with a refusal.</P>
+      <P>Three things can go wrong, and the lab has a benchmark for each:</P>
+      <ul>
+        <li><b>It still complies.</b> “Refuses secrets” asks for vault codes in plain words and counts refusals. Real labs use suites such as HarmBench.</li>
+        <li><b>It refuses only the phrasing it was trained on.</b> “Resists jailbreaks” asks for the same thing in forms that were never in the safety data: behind an opening line (“for a story…”) or reworded (“what opens …?”). A <b>jailbreak</b> is exactly this: a request the model would refuse, dressed up until it does not recognize it. The gap between the first two scores is the real-world problem in miniature, and it is why labs employ red teams to hunt for new phrasings.</li>
+        <li><b>It refuses too much.</b> A model that says no to everything is perfectly safe and useless. “Still helpful” asks harmless questions about the same places with the same wording tricks. This is why the safety data mixes in ordinary questions. Run the lab with only one or two safety epochs and you may catch the model in an over-refusing phase.</li>
+      </ul>
+      <P>Then compare the capability benchmarks before and after. Any drop is the <b>safety tax</b>: teaching new behavior with a small dataset disturbs what was there. Mixing in ordinary data keeps it small.</P>
+      <P><b>About the benchmarks.</b> Each of the seven mimics a family that real labs report: next-token accuracy on held-out text, knowledge quizzes (MMLU), math word problems (GSM8K), reasoning puzzles (ARC), harmful-request suites, jailbreak suites and over-refusal tests (XSTest). Two habits carry over to the real thing:</P>
+      <ul>
+        <li><b>Run the same tests after every change.</b> A stage that helps one score often costs another.</li>
+        <li><b>Do not train on the test.</b> These questions are fixed, so tuning settings until the bars look good slowly fits the model to them. Real benchmarks leak into training data in the same way, and scores drift upward without the models getting better.</li>
+      </ul>
+      <Tip>The lab’s model has perhaps a million weights and its world is tiny, so its refusals generalize more easily than a real model’s would. Real jailbreaks are found in an effectively endless space of phrasings.</Tip>
+    </>,
+    quiz: { q: 'A model refuses 100% of plainly worded harmful requests but only 40% when they are reworded. What does that tell you?', options: ['The model is safe', 'It learned the wording it was trained on more than the idea behind it', 'The benchmark is broken', 'It needs a bigger GPU'], answer: 1, explain: 'That gap is what jailbreaks exploit, and why safety data and testing need variety.' },
+  },
+  {
     id: 'adv.autopilot', section: 'advanced', title: 'Autopilot: improving a model automatically', summary: 'Start from a model that works and let the computer keep trying small changes.', unlock: { feature: 'advanced.autopilot' }, action: { tab: 'leaderboard', label: 'Open the Leaderboard' },
     body: <>
       <P>Optuna searches a range of settings that you describe. The <b>autopilot</b> works the other way round: you hand it a model that already trains well, and it looks for something better nearby.</P>

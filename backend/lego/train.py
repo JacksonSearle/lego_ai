@@ -201,7 +201,9 @@ def train_run(
             # size, more classes) keep their fresh random weights. So does the output head when
             # the dataset is a different one: its outputs meant other classes there.
             skip: tuple[str, ...] = ()
-            if src["config"]["dataset"]["id"] != config["dataset"]["id"]:
+            a, b = src["config"]["dataset"]["id"], config["dataset"]["id"]
+            # (The Frontier Lab's datasets share one vocabulary, so their outputs mean the same thing.)
+            if a != b and not (a.startswith("lab_") and b.startswith("lab_")):
                 skip = tuple(f"blocks.b_{str(b['id']).replace('.', '_')}." for b in config["architecture"]["blocks"] if b["type"] == "classifier")
             own = net.state_dict()
             copied = [k for k, v in start.items() if k in own and own[k].shape == v.shape and not k.startswith(skip or ("\0",))]

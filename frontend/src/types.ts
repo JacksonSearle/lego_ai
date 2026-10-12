@@ -217,6 +217,8 @@ export interface RunRow {
   arch: string
   /** Trained on another computer (a worker). */
   remote?: { worker: string; device: string; gpu?: string | null } | null
+  /** A stage of a Frontier Lab pipeline. */
+  pipeline?: { id: string; stage: string; index: number; n: number; name: string } | null
 }
 
 /** A column of an uploaded table, as shown before importing. */
@@ -249,6 +251,18 @@ export interface GlobalInfo { name: string; version: string; tracks: Track[]; qu
 export interface AppSettings { server_url: string; player: string; update_repo: string; feedback_email: string; workers: { id: string; name: string; url: string }[] }
 export interface Worker { id: string; name: string; url: string; ok: boolean; error?: string; device?: string; gpu?: string | null; gpu_gb?: number | null; cpu?: string; version?: string; same_version?: boolean }
 export interface UpdateInfo { current: string; latest: string | null; available: boolean; notes: string; url: string | null }
+/** Frontier Lab: scores and example answers after one stage of the pipeline. */
+export interface LabBench { scores: Record<string, number>; samples: { bench: string; q: string; a: string }[]; capability: number; safety: number }
+export interface LabStage { stage: 'pretrain' | 'rl' | 'safety'; run_id: string | null; status: 'waiting' | 'running' | 'done' | 'stopped'; bench: LabBench | null; seconds: number | null; reused?: boolean }
+export interface LabPipeline { id: string; name: string; created_at: number; status: string; error?: string; options: Record<string, number | boolean>; stages: LabStage[] }
+export interface LabInfo {
+  stages: { id: string; name: string; icon: string; what: string }[]
+  benchmarks: { id: string; name: string; like: string; group: 'capability' | 'safety'; what: string }[]
+  defaults: Record<string, number | boolean>
+  refusal: string
+  world: { places: number; example: Record<string, string>; sample: string }
+  safety_sample: string
+}
 export interface HubStatus { logged_in: boolean; user: string | null; error?: string }
 export interface HubModel { repo: string; downloads: number | null; likes: number | null; updated: string }
 

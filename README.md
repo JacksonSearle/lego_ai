@@ -108,6 +108,12 @@ Every page has a **?** button linking to its lesson. The lesson content lives in
   gate over the members). On a single run: Cook a soup (fine-tune several variations from it,
   then average them) and MonoSoup ("Model soups need only one ingredient", arXiv 2602.09689).
   Results are ordinary runs that work in Explore.
+- **Frontier Lab tab.** A scaled-down version of how a frontier lab builds an assistant, on a toy
+  world a small character-level transformer learns in minutes: pretrain on a "toy internet" (with
+  popular mistakes and leaked secrets), improve with reinforcement learning (GRPO) on checkable
+  tasks, fine-tune to refuse requests for the secrets, and run seven benchmarks after every
+  stage (language, knowledge, math, puzzles, refusal, jailbreak resistance, over-refusal). A
+  station diagram shows the current stage; each stage is an ordinary run.
 - **Shared leaderboard.** One person hosts (`LEGO_HOST=1 ./run.sh`); everyone else connects
   under Leaderboard → Shared and submits runs to tracks with limits (weights, epochs, data,
   time). The host retrains every submission itself and lists the score it measures. See
@@ -253,6 +259,8 @@ backend/lego/
   scaling.py      scaling studies (model width or data size)
   userdata.py     importing datasets (CSV, text, image zip)
   hub.py          Hugging Face: dataset import, publish and import models
+  labworld.py     the Frontier Lab's toy world: corpora, tasks, benchmarks
+  lab.py          the pipeline: GRPO stage, benchmarks, orchestration
   host.py         shared leaderboard host: tracks, submission queue, verification, feedback
   remote.py       training on another computer (worker)
   settings.py, update.py   local settings, access token, release check
@@ -262,7 +270,7 @@ backend/lego/
   runs.py, jobs.py   storage, background jobs + event streams
   server.py       FastAPI app
 frontend/src/
-  pages/          Lab, Builder, Train, Leaderboard, Shared (shared board + host admin), Explore, Scaling, Datasets, CustomBlocks
+  pages/          Lab, Builder, Train, Leaderboard, Shared (shared board + host admin), Explore, Scaling, Datasets, Frontier, CustomBlocks
   learn/          curriculum, lessons, diagrams, guidebook, teacher demo
   components/     Brick, ParamField, LineChart, LiveCharts, ArchView, SizeAdvisor
   store.tsx       app state, undo/redo, live job stream

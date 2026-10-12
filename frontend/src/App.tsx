@@ -10,6 +10,7 @@ import { Datasets } from './pages/Datasets'
 import { Explore } from './pages/Explore'
 import { Lab } from './pages/Lab'
 import { Leaderboard } from './pages/Leaderboard'
+import { Frontier } from './pages/Frontier'
 import { Scaling } from './pages/Scaling'
 import { HostAdmin } from './pages/Shared'
 import { FeedbackButton, UpdateBanner } from './components/Feedback'
@@ -27,6 +28,7 @@ const TABS: { id: string; label: string; feature?: Feature }[] = [
   { id: 'explore', label: 'Explore' },
   { id: 'scaling', label: 'Scaling', feature: 'scaling.page' },
   { id: 'datasets', label: 'Datasets', feature: 'datasets.custom' },
+  { id: 'frontier', label: '🏭 Frontier Lab', feature: 'frontier' },
   { id: 'custom', label: 'Custom Blocks', feature: 'custom.page' },
   { id: 'guide', label: '📖 Guidebook' },
 ]
@@ -77,6 +79,7 @@ function Shell() {
       explore: <Explore />,
       scaling: <Scaling />,
       datasets: <Datasets />,
+      frontier: <Frontier />,
       host: <HostAdmin />,
       custom: <CustomBlocks />,
       guide: <Guidebook />,

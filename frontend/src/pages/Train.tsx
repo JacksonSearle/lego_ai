@@ -183,7 +183,7 @@ export function Train() {
                   <span className="lbl">Dataset</span>
                   <select value={draft.dataset} disabled={!access.has('datasets')} onChange={(e) => { setDraft((d) => ({ ...d, dataset: e.target.value, seq_len: null })); flag('datasetChanged') }}>
                     {datasets.map((d) => {
-                      const ok = !access.datasets || access.datasets.has(d.id) || !!d.custom
+                      const ok = !access.datasets || access.datasets.has(d.id) || !!d.custom || (d.id.startsWith('lab_') && access.has('frontier'))
                       return <option key={d.id} value={d.id} disabled={!ok}>{ok ? `${d.name} · ${difficultyTag(d).toLowerCase()}` : `🔒 ${d.name} (${skillForDataset(d.id)?.title ?? 'skill'})`}</option>
                     })}
                   </select>
@@ -550,6 +550,7 @@ function LivePanel({ task }: { task?: string }) {
             {session.kind === 'tune' && session.currentTrial && <span className="muted"> · trial {session.currentTrial}</span>}
             {session.kind === 'autopilot' && session.currentTrial && <span className="muted"> · autopilot round {session.currentTrial}</span>}
             {session.kind === 'cook' && session.currentTrial && <span className="muted"> · variation {session.currentTrial}</span>}
+            {session.kind === 'lab' && session.pipeline && session.currentTrial && <span className="muted"> · stage {session.currentTrial} of {session.seedTotal}: {{ pretrain: 'pretraining', rl: 'reinforcement learning', safety: 'safety fine-tune' }[session.pipeline.stages[session.currentTrial - 1]?.stage ?? 'pretrain']}</span>}
           </h3>
           <span className={`pill ${statusCls}`}>{session.status === 'running' && <span className="spinner" style={{ width: 10, height: 10 }} />} {paused ? 'paused' : session.status}</span>
           {session.status !== 'running' && <button className="sm ghost" onClick={clearSession}>Dismiss</button>}
@@ -627,6 +628,12 @@ function LivePanel({ task }: { task?: string }) {
 
       {(session.kind === 'seeds' || session.kind === 'cook' || session.kind === 'suite') && <SeedsTable />}
       {(session.kind === 'tune' || session.kind === 'autopilot') && <TrialsTable />}
+      {session.kind === 'lab' && (
+        <div className="note-box row">
+          <span className="grow">Frontier Lab pipeline: {session.pipeline?.stages.filter((s) => s.status === 'done').length ?? 0} of {session.pipeline?.stages.length ?? '?'} stages finished. During reinforcement learning the “accuracy” curve is the average reward, and validation is the score on sums and puzzles.</span>
+          <button onClick={() => setTab('frontier')}>Open Frontier Lab →</button>
+        </div>
+      )}
       {session.kind === 'scale' && (
         <div className="note-box row">
           <span className="grow">Scaling study: {session.points.length} of {session.scale?.n ?? '?'} sizes finished. The curve is drawn on the Scaling tab.</span>

@@ -571,3 +571,17 @@ table.confusion { border-collapse: collapse; font-size: 12px; }
 .clickable-cell:hover { background: var(--panel-2); }
 .cell-selected { background: #1d2740 !important; }
 .chosen-card { border-color: var(--accent); }
+
+/* Group 12: Frontier Lab */
+.stations { display: flex; align-items: stretch; gap: 6px; margin-bottom: 4px; overflow-x: auto; }
+.station { flex: 1 1 0; min-width: 170px; background: var(--panel); border: 1px solid var(--border); border-top: 3px solid var(--sc); border-radius: 10px; padding: 10px 12px; transition: box-shadow 0.2s, border-color 0.2s; }
+.station.idle, .station.waiting, .station.skipped { opacity: 0.6; }
+.station.running { border-color: var(--accent); box-shadow: 0 0 0 2px #facc1533, 0 0 18px #facc1522; animation: station-pulse 1.6s ease-in-out infinite; }
+@keyframes station-pulse { 50% { box-shadow: 0 0 0 2px #facc1566, 0 0 26px #facc1544; } }
+.station-arrow { align-self: center; color: var(--border-strong); font-size: 20px; flex: 0 0 auto; }
+.station-arrow.lit { color: var(--accent); }
+.frontier-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; margin-top: 14px; }
+@media (max-width: 900px) { .frontier-layout { grid-template-columns: 1fr; } }
+.bench-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 12px; align-items: center; }
+.bench-bar { flex: 1; height: 10px; background: var(--panel-3); border-radius: 5px; overflow: hidden; }
+.bench-bar > div { height: 100%; border-radius: 5px; transition: width 0.4s; }
